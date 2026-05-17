@@ -3,32 +3,7 @@ import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, setToken } from "@/lib/api";
-import { BarChart3, Loader2, AlertCircle } from "lucide-react";
-
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-  * { box-sizing: border-box; }
-  input::placeholder { color: #334155; }
-  input:focus { outline: none; border-color: #34d399 !important; }
-  .auth-input {
-    width: 100%; padding: 11px 14px;
-    border-radius: 10px; border: 1px solid rgba(30,41,59,0.9);
-    background: rgba(15,23,42,0.7); color: #f1f5f9;
-    font-size: 14px; font-family: 'Manrope', system-ui, sans-serif;
-    transition: border-color 150ms;
-  }
-  .auth-btn {
-    width: 100%; padding: 11px;
-    border-radius: 10px; border: none; cursor: pointer;
-    background: #f1f5f9; color: #0f172a;
-    font-size: 14px; font-weight: 700;
-    font-family: 'Manrope', system-ui, sans-serif;
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    transition: background 150ms;
-  }
-  .auth-btn:hover:not(:disabled) { background: #e2e8f0; }
-  .auth-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-`;
+import { BarChart3, Loader2, AlertCircle, ArrowRight } from "lucide-react";
 
 function LoginForm() {
   const router       = useRouter();
@@ -56,100 +31,199 @@ function LoginForm() {
   }
 
   return (
-    <div style={{
-      minHeight: "100vh", background: "#0a0e1a", display: "flex",
-      alignItems: "center", justifyContent: "center", padding: 24,
-      fontFamily: "'Manrope', system-ui, sans-serif",
-    }}>
-      <style>{CSS}</style>
+    <main style={pageStyle}>
+      <FontImport />
 
-      {/* Grain */}
-      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", opacity: 0.04,
+      {/* Atmosphere */}
+      <div aria-hidden style={{
+        position: "fixed", inset: 0, pointerEvents: "none", opacity: 0.04, zIndex: 0,
         backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
       }} />
-      {/* Glow */}
-      <div style={{ position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)",
-        width: 600, height: 300, borderRadius: "50%",
-        background: "radial-gradient(ellipse, rgba(52,211,153,0.07) 0%, transparent 70%)",
-        pointerEvents: "none",
+      <div aria-hidden style={{
+        position: "fixed", top: -200, left: "50%", transform: "translateX(-50%)",
+        width: 700, height: 380, borderRadius: "50%", pointerEvents: "none", zIndex: 0,
+        background: "radial-gradient(ellipse, rgba(52,211,153,0.08), transparent 70%)",
+        filter: "blur(30px)",
       }} />
 
-      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 400 }}>
-        {/* Brand */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 8, textDecoration: "none", color: "#34d399" }}>
-            <BarChart3 size={22} />
-            <span style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 22 }}>ClarityBooks</span>
-          </Link>
-        </div>
+      <div style={{
+        position: "relative", zIndex: 1,
+        display: "grid", gridTemplateColumns: "1fr",
+        maxWidth: 1180, margin: "0 auto", minHeight: "100vh",
+      }}>
 
-        {/* Card */}
-        <div style={{
-          borderRadius: 20, border: "1px solid rgba(30,41,59,0.8)",
-          background: "rgba(15,23,42,0.6)", backdropFilter: "blur(16px)",
-          padding: "36px 32px",
+        {/* Brand strip top */}
+        <header style={{
+          padding: "28px 28px 0",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
         }}>
-          <h1 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 32, color: "#f8fafc", margin: "0 0 4px", lineHeight: 1 }}>
-            Welcome back
-          </h1>
-          <p style={{ fontSize: 13, color: "#475569", margin: "0 0 28px" }}>Sign in to your account</p>
-
-          {error && (
-            <div style={{
-              display: "flex", gap: 8, alignItems: "flex-start",
-              padding: "12px 14px", marginBottom: 20,
-              borderRadius: 10, background: "rgba(251,113,133,0.08)",
-              border: "1px solid rgba(251,113,133,0.2)", color: "#fda4af", fontSize: 13,
+          <Link href="/" style={{
+            display: "flex", alignItems: "center", gap: 8,
+            textDecoration: "none", color: "#34d399",
+          }}>
+            <BarChart3 size={20} />
+            <span style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 22,
             }}>
-              <AlertCircle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
-              {error}
-            </div>
-          )}
+              ClarityBooks
+            </span>
+          </Link>
+          <Link href="/register" style={{
+            fontFamily: "'Manrope', system-ui, sans-serif",
+            fontSize: 12, color: "#94a3b8", textDecoration: "none",
+            display: "flex", alignItems: "center", gap: 4,
+          }}>
+            No account? <span style={{ color: "#34d399" }}>Create one</span>
+            <ArrowRight size={12} style={{ color: "#34d399" }} />
+          </Link>
+        </header>
 
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#475569", marginBottom: 6 }}>
-                Email
-              </label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                required placeholder="you@company.com" className="auth-input" />
+        {/* Editorial split: left = serif poetry, right = form */}
+        <section style={{
+          flex: 1, display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+          gap: 64, alignItems: "center",
+          padding: "60px 28px",
+        }}
+          className="login-split"
+        >
+          {/* Left — editorial */}
+          <div style={{
+            display: "flex", flexDirection: "column", gap: 22,
+            opacity: 0, animation: "rise 600ms ease-out forwards",
+          }}>
+            <div style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase",
+              color: "#34d399",
+            }}>
+              Sign in to continue
             </div>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <label style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#475569" }}>
-                  Password
-                </label>
-              </div>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                required placeholder="••••••••" className="auth-input" />
+            <h1 style={{
+              margin: 0,
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: "clamp(44px, 6vw, 72px)",
+              lineHeight: 0.98, letterSpacing: "-0.02em",
+              color: "#f1f5f9",
+            }}>
+              Welcome
+              <br />
+              <em style={{ color: "#34d399", fontStyle: "italic" }}>back.</em>
+            </h1>
+            <p style={{
+              margin: 0, maxWidth: 380, fontSize: 14, lineHeight: 1.6,
+              color: "#94a3b8",
+              fontFamily: "'Manrope', system-ui, sans-serif",
+            }}>
+              Pick up where you left off — your triage queue, your reconciliation
+              runs, your P&amp;L statement, all where you left them.
+            </p>
+            <div style={{
+              marginTop: 8, paddingTop: 16,
+              borderTop: "1px solid rgba(30,41,59,0.5)",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+              color: "#475569",
+            }}>
+              JWT bearer · data stays in your org
             </div>
-            <button type="submit" disabled={loading} className="auth-btn">
-              {loading && <Loader2 size={15} className="animate-spin" />}
-              Sign in
-            </button>
-          </form>
-
-          {/* Divider */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "24px 0 0" }}>
-            <div style={{ flex: 1, height: 1, background: "rgba(30,41,59,0.8)" }} />
-            <span style={{ fontSize: 11, color: "#334155" }}>or</span>
-            <div style={{ flex: 1, height: 1, background: "rgba(30,41,59,0.8)" }} />
           </div>
 
-          <p style={{ textAlign: "center", fontSize: 13, color: "#475569", marginTop: 20 }}>
-            No account?{" "}
-            <Link href={`/register${redirect !== "/dashboard" ? `?redirect=${redirect}` : ""}`}
-              style={{ color: "#34d399", textDecoration: "none", fontWeight: 500 }}>
-              Create one free
-            </Link>
-          </p>
-        </div>
+          {/* Right — form */}
+          <div style={{
+            opacity: 0, animation: "rise 700ms 150ms ease-out forwards",
+          }}>
+            <div style={{
+              padding: "32px 32px 28px",
+              borderRadius: 16,
+              border: "1px solid rgba(30,41,59,0.7)",
+              background: "rgba(15,23,42,0.6)",
+              backdropFilter: "blur(16px)",
+              position: "relative", overflow: "hidden",
+            }}>
+              {/* Subtle corner glow */}
+              <div aria-hidden style={{
+                position: "absolute", top: -60, right: -60, width: 200, height: 200,
+                borderRadius: "50%", pointerEvents: "none",
+                background: "radial-gradient(circle, rgba(52,211,153,0.12), transparent 70%)",
+              }} />
 
-        <p style={{ textAlign: "center", fontSize: 11, color: "#1e293b", marginTop: 20 }}>
-          Secured with JWT · Data stays in your org
-        </p>
+              <form onSubmit={handleSubmit} style={{ position: "relative" }}>
+                <FieldLabel>Email</FieldLabel>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                  required placeholder="you@company.com"
+                  style={fieldStyle} />
+
+                <div style={{ height: 18 }} />
+
+                <FieldLabel>Password</FieldLabel>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                  required placeholder="••••••••"
+                  style={fieldStyle} />
+
+                {error && (
+                  <div style={{
+                    marginTop: 18, padding: "10px 12px", borderRadius: 8,
+                    border: "1px solid rgba(251,113,133,0.3)",
+                    background: "rgba(251,113,133,0.08)",
+                    display: "flex", gap: 8, alignItems: "flex-start",
+                    color: "#fda4af", fontSize: 12.5,
+                    fontFamily: "'Manrope', system-ui, sans-serif",
+                  }}>
+                    <AlertCircle size={13} style={{ marginTop: 1, flexShrink: 0 }} />
+                    {error}
+                  </div>
+                )}
+
+                <button type="submit" disabled={loading}
+                  style={{
+                    width: "100%", marginTop: 22, padding: "11px 16px", borderRadius: 10,
+                    border: "none", cursor: loading ? "wait" : "pointer",
+                    background: "#34d399", color: "#0f172a",
+                    fontSize: 14, fontWeight: 700,
+                    fontFamily: "'Manrope', system-ui, sans-serif",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    opacity: loading ? 0.6 : 1,
+                  }}>
+                  {loading && <Loader2 size={15} className="animate-spin" />}
+                  Sign in
+                  {!loading && <ArrowRight size={14} />}
+                </button>
+
+                <div style={{
+                  marginTop: 22, paddingTop: 18,
+                  borderTop: "1px solid rgba(30,41,59,0.6)",
+                  textAlign: "center",
+                  fontSize: 12, color: "#475569",
+                  fontFamily: "'Manrope', system-ui, sans-serif",
+                }}>
+                  No account?{" "}
+                  <Link href={`/register${redirect !== "/dashboard" ? `?redirect=${redirect}` : ""}`}
+                    style={{ color: "#34d399", textDecoration: "none", fontWeight: 600 }}>
+                    Create one free
+                  </Link>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <style>{`
+          @media (max-width: 860px) {
+            .login-split {
+              grid-template-columns: 1fr !important;
+              gap: 32px !important;
+            }
+          }
+          @keyframes rise {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
+          }
+          input::placeholder { color: #334155; }
+        `}</style>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -159,57 +233,49 @@ export default function LoginPage() {
       <LoginForm />
     </Suspense>
   );
-}          <Link href="/" className="flex items-center gap-2 text-emerald-400 font-bold text-xl">
-            <BarChart3 size={24} /> ClarityBooks
-          </Link>
-        </div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8">
-          <h1 className="text-xl font-bold mb-1">Welcome back</h1>
-          <p className="text-sm text-zinc-500 mb-6">Sign in to your account</p>
-
-          {error && (
-            <div className="mb-4 rounded-lg bg-red-950/60 border border-red-900 text-red-400 px-4 py-3 text-sm">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1.5">Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
-                placeholder="you@example.com"
-                className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors" />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1.5">Password</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
-                placeholder="••••••••"
-                className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors" />
-            </div>
-            <button type="submit" disabled={loading}
-              className="w-full rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-zinc-950 font-semibold py-2.5 transition-colors flex items-center justify-center gap-2">
-              {loading && <Loader2 size={16} className="animate-spin" />}
-              Sign in
-            </button>
-          </form>
-
-          <p className="mt-5 text-center text-sm text-zinc-500">
-            No account?{" "}
-            <Link href={`/register${redirect !== "/dashboard" ? `?redirect=${redirect}` : ""}`}
-              className="text-emerald-400 hover:underline">
-              Create one
-            </Link>
-          </p>
-        </div>
-      </div>
-    </div>
-  );
 }
 
-export default function LoginPage() {
+/* ───────── sub-components ───────── */
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-zinc-950" />}>
-      <LoginForm />
-    </Suspense>
+    <label style={{
+      display: "block", marginBottom: 8,
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+      color: "#475569",
+    }}>
+      {children}
+    </label>
   );
 }
+
+/* ───────── styles ───────── */
+
+const pageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#0a0e1a",
+  color: "#f8fafc",
+  fontFamily: "'Manrope', system-ui, sans-serif",
+  position: "relative",
+  overflow: "hidden",
+};
+
+function FontImport() {
+  return (
+    <style>{`@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`}</style>
+  );
+}
+
+const fieldStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "11px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(30,41,59,0.8)",
+  background: "rgba(15,23,42,0.7)",
+  color: "#f1f5f9",
+  fontSize: 14,
+  fontFamily: "'Manrope', system-ui, sans-serif",
+  outline: "none",
+  transition: "border-color 150ms",
+};

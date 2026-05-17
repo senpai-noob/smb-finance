@@ -8,3 +8,4 @@ from app.models.audit import AuditLog                   # noqa
 from app.models.api_key import APIKey                   # noqa
 
 from app.models.subscription import Plan, Subscription  # noqa
+from app.models.reconciliation import ReconciliationRun, Match, Anomaly  # noqa

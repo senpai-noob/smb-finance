@@ -6,8 +6,9 @@ import Nav from "@/components/Nav";
 import { useToast } from "@/components/Toast";
 import {
   CheckCircle2, XCircle, Loader2, Shield, Building2,
-  User, Users, Plus, Trash2, Copy, RefreshCw, Crown,
+  Users, Plus, Trash2, Copy, RefreshCw, Crown,
   Eye, Pencil, Key, AlertTriangle, Clock,
+  User as UserIcon,
 } from "lucide-react";
 
 interface UserMe   { id: number; name: string; email: string; }
@@ -18,15 +19,31 @@ interface GSTINRes { valid: boolean; state?: string; pan?: string; state_code?: 
 interface AuditLog { id: number; action: string; user_id?: number; resource?: string; detail?: string; ip_address?: string; created_at: string; }
 interface APIKey   { id: number; name: string; key_prefix: string; is_active: boolean; created_at: string; last_used?: string; }
 
-const ROLE_ICON: Record<string, React.ReactNode> = {
-  owner:  <Crown  size={12} className="text-yellow-400" />,
-  admin:  <Pencil size={12} className="text-sky-400" />,
-  viewer: <Eye    size={12} className="text-zinc-400" />,
+type Tab = "org" | "team" | "keys" | "audit" | "gstin";
+
+const TABS: Array<{
+  id: Tab;
+  label: string;
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  kicker: string;
+}> = [
+  { id: "org",   label: "Organisation", icon: Building2, kicker: "01" },
+  { id: "team",  label: "Team",         icon: Users,     kicker: "02" },
+  { id: "keys",  label: "API Keys",     icon: Key,       kicker: "03" },
+  { id: "audit", label: "Audit Log",    icon: Clock,     kicker: "04" },
+  { id: "gstin", label: "GSTIN Tool",   icon: Shield,    kicker: "05" },
+];
+
+const ROLE_COLOR: Record<string, { border: string; text: string; bg: string }> = {
+  owner:  { border: "rgba(251,191,36,0.35)", text: "#fcd34d", bg: "rgba(251,191,36,0.06)" },
+  admin:  { border: "rgba(56,189,248,0.35)", text: "#7dd3fc", bg: "rgba(56,189,248,0.06)" },
+  viewer: { border: "rgba(148,163,184,0.3)", text: "#cbd5e1", bg: "transparent" },
 };
-const ROLE_COLOR: Record<string, string> = {
-  owner:  "text-yellow-400 border-yellow-800 bg-yellow-950/40",
-  admin:  "text-sky-400   border-sky-800   bg-sky-950/40",
-  viewer: "text-zinc-400  border-zinc-700  bg-zinc-800/40",
+
+const ROLE_ICON: Record<string, React.ReactNode> = {
+  owner:  <Crown  size={11} />,
+  admin:  <Pencil size={11} />,
+  viewer: <Eye    size={11} />,
 };
 
 export default function SettingsPage() {
@@ -40,7 +57,6 @@ export default function SettingsPage() {
   const [orgGST, setOrgGST]   = useState("");
   const [saving, setSaving]   = useState(false);
 
-  // Team
   const [members, setMembers]   = useState<Member[]>([]);
   const [invites, setInvites]   = useState<Invite[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -48,21 +64,18 @@ export default function SettingsPage() {
   const [inviting, setInviting]       = useState(false);
   const [newInviteUrl, setNewInviteUrl] = useState("");
 
-  // GSTIN
   const [gstinInput, setGstinInput]     = useState("");
   const [gstinResult, setGstinResult]   = useState<GSTINRes | null>(null);
   const [validating, setValidating]     = useState(false);
 
-  // API Keys
   const [apiKeys, setApiKeys]           = useState<APIKey[]>([]);
   const [newKeyName, setNewKeyName]     = useState("");
   const [creatingKey, setCreatingKey]   = useState(false);
   const [revealedKey, setRevealedKey]   = useState<string>("");
 
-  // Audit
   const [auditLogs, setAuditLogs]       = useState<AuditLog[]>([]);
 
-  const [tab, setTab] = useState<"org"|"team"|"keys"|"audit"|"gstin">("org");
+  const [tab, setTab] = useState<Tab>("org");
 
   useEffect(() => {
     if (!localStorage.getItem("smb_token")) { router.push("/login"); return; }
@@ -156,356 +169,856 @@ export default function SettingsPage() {
   const myRole  = members.find(m => m.user_id === me?.id)?.role || "owner";
   const canAdmin = ["owner", "admin"].includes(myRole);
 
-  const TABS = [
-    { id: "org",   label: "Organisation", icon: Building2 },
-    { id: "team",  label: "Team",         icon: Users     },
-    { id: "keys",  label: "API Keys",     icon: Key       },
-    { id: "audit", label: "Audit Log",    icon: Clock     },
-    { id: "gstin", label: "GSTIN Tool",   icon: Shield    },
-  ] as const;
-
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div style={pageBg}>
+      <FontImport />
+
+      {/* Atmosphere */}
+      <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", opacity: 0.04, zIndex: 0,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+      }} />
+
       <Nav />
-      <div className="mx-auto max-w-3xl px-4 md:px-6 py-6">
 
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <h1 className="text-xl font-bold">Settings</h1>
-          <div className="flex gap-2 flex-wrap">
-            {orgs.map(o => (
-              <button key={o.id} onClick={() => setOrg(o)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${org?.id === o.id ? "bg-emerald-500 text-zinc-950" : "border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"}`}>
-                {o.name}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 1180, margin: "0 auto", padding: "32px 28px 80px" }}>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-6 flex-wrap">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => setTab(id)}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${tab === id ? "bg-emerald-500 text-zinc-950" : "border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500"}`}>
-              <Icon size={13} />{label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Organisation ── */}
-        {tab === "org" && (
-          <div className="space-y-5">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/30">
-              <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center gap-2">
-                <User size={14} className="text-zinc-400" /><h2 className="text-sm font-semibold">Profile</h2>
-              </div>
-              <div className="px-5 py-4 grid grid-cols-2 gap-3">
-                {me ? (<>
-                  <div><p className="text-xs text-zinc-500 mb-1">Name</p><p className="text-sm text-zinc-200 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">{me.name}</p></div>
-                  <div><p className="text-xs text-zinc-500 mb-1">Email</p><p className="text-sm text-zinc-200 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 font-mono">{me.email}</p></div>
-                </>) : <div className="col-span-2 h-14 animate-pulse bg-zinc-800 rounded-lg" />}
-              </div>
+        {/* Masthead */}
+        <header style={{
+          paddingBottom: 20, marginBottom: 28,
+          borderBottom: "1px solid rgba(30,41,59,0.55)",
+          display: "flex", alignItems: "flex-end", justifyContent: "space-between",
+          flexWrap: "wrap", gap: 16,
+          opacity: 0, animation: "rise 500ms ease-out forwards",
+        }}>
+          <div>
+            <div style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase",
+              color: "#52525b", marginBottom: 8,
+            }}>
+              Workspace control
             </div>
-            {org && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/30">
-                <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center gap-2">
-                  <Building2 size={14} className="text-zinc-400" /><h2 className="text-sm font-semibold">Organisation</h2>
-                </div>
-                <form onSubmit={saveOrg} className="px-5 py-4 space-y-4">
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1.5">Business Name</label>
-                    <input value={orgName} onChange={e => setOrgName(e.target.value)} required
-                      className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1.5">GSTIN <span className="text-zinc-600">(15 characters)</span></label>
-                    <input value={orgGST} onChange={e => setOrgGST(e.target.value.toUpperCase())} placeholder="27AAPFU0939F1ZV"
-                      className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white font-mono tracking-wider focus:outline-none focus:border-emerald-500 placeholder-zinc-600" />
-                  </div>
-                  <button type="submit" disabled={saving}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-semibold px-5 py-2 text-sm">
-                    {saving && <Loader2 size={13} className="animate-spin" />}Save changes
-                  </button>
-                </form>
-              </div>
-            )}
+            <h1 style={{
+              margin: 0,
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 38, lineHeight: 1, fontStyle: "italic",
+              color: "#f1f5f9",
+            }}>
+              Settings
+            </h1>
           </div>
-        )}
 
-        {/* ── Team ── */}
-        {tab === "team" && org && (
-          <div className="space-y-5">
-            {/* Members */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center gap-2">
-                <Users size={14} className="text-zinc-400" /><h2 className="text-sm font-semibold">Members</h2>
-                <span className="ml-auto text-xs text-zinc-500">{members.length}</span>
-              </div>
-              <div className="divide-y divide-zinc-800/60">
-                {members.map(m => (
-                  <div key={m.id} className="flex items-center gap-3 px-5 py-3">
-                    <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-sm font-semibold text-zinc-300 shrink-0">
-                      {m.name[0].toUpperCase()}
+          {/* Org switcher chips */}
+          {orgs.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {orgs.map(o => {
+                const active = org?.id === o.id;
+                return (
+                  <button key={o.id} onClick={() => setOrg(o)} style={{
+                    padding: "6px 12px", borderRadius: 99,
+                    border: active ? "1px solid rgba(52,211,153,0.4)" : "1px solid rgba(30,41,59,0.7)",
+                    background: active ? "rgba(52,211,153,0.06)" : "transparent",
+                    color: active ? "#6ee7b7" : "#94a3b8",
+                    fontSize: 12, cursor: "pointer",
+                    fontFamily: "'Manrope', system-ui, sans-serif",
+                  }}>
+                    {o.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </header>
+
+        {/* Split: rail + content */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "200px 1fr", gap: 36,
+          alignItems: "flex-start",
+        }} className="settings-split">
+
+          {/* Vertical rail */}
+          <nav style={{
+            position: "sticky", top: 84,
+            display: "flex", flexDirection: "column", gap: 2,
+            paddingRight: 16,
+            borderRight: "1px solid rgba(30,41,59,0.55)",
+          }}>
+            {TABS.map(({ id, label, icon: Icon, kicker }) => {
+              const active = tab === id;
+              return (
+                <button key={id} onClick={() => setTab(id)} style={{
+                  position: "relative",
+                  display: "grid", gridTemplateColumns: "20px 16px 1fr",
+                  alignItems: "center", gap: 10,
+                  padding: "10px 8px",
+                  border: "none", background: "transparent",
+                  color: active ? "#f1f5f9" : "#64748b",
+                  fontFamily: "'Manrope', system-ui, sans-serif",
+                  fontSize: 13, fontWeight: active ? 600 : 500,
+                  cursor: "pointer", textAlign: "left",
+                  transition: "color 120ms",
+                }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.color = "#cbd5e1"; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.color = "#64748b"; }}
+                >
+                  <span style={{
+                    fontFamily: "'JetBrains Mono', monospace", fontSize: 9,
+                    letterSpacing: "0.14em",
+                    color: active ? "#34d399" : "#3f3f46",
+                  }}>{kicker}</span>
+                  <Icon size={13} style={{ color: active ? "#34d399" : "#475569" }} />
+                  <span>{label}</span>
+                  {active && (
+                    <span style={{
+                      position: "absolute", right: -1, top: 8, bottom: 8, width: 2,
+                      background: "#34d399", borderRadius: "2px 0 0 2px",
+                    }} />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Content */}
+          <div style={{ minWidth: 0 }}>
+            {tab === "org" && (
+              <Section kicker={tabKicker("org")} title="Organisation">
+                <Subsection icon={UserIcon} title="Profile">
+                  {me ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                      <ReadOnly label="Name" value={me.name} />
+                      <ReadOnly label="Email" value={me.email} mono />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-zinc-200 font-medium">{m.name}{m.user_id === me?.id && <span className="ml-2 text-xs text-zinc-600">(you)</span>}</p>
-                      <p className="text-xs text-zinc-500 font-mono">{m.email}</p>
+                  ) : (
+                    <div style={{ height: 56, background: "rgba(30,41,59,0.4)", borderRadius: 8 }} />
+                  )}
+                </Subsection>
+
+                {org && (
+                  <Subsection icon={Building2} title="Business details">
+                    <form onSubmit={saveOrg} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                      <Field label="Business Name">
+                        <input value={orgName} onChange={e => setOrgName(e.target.value)} required style={inputStyle} />
+                      </Field>
+                      <Field label="GSTIN (15 characters)">
+                        <input value={orgGST} onChange={e => setOrgGST(e.target.value.toUpperCase())}
+                          placeholder="27AAPFU0939F1ZV"
+                          style={{ ...inputStyle, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.02em" }} />
+                      </Field>
+                      <button type="submit" disabled={saving} style={{
+                        ...primaryBtn(saving), alignSelf: "flex-start",
+                      }}>
+                        {saving && <Loader2 size={13} className="animate-spin" />}
+                        Save changes
+                      </button>
+                    </form>
+                  </Subsection>
+                )}
+              </Section>
+            )}
+
+            {tab === "team" && org && (
+              <Section kicker={tabKicker("team")} title="Team">
+                <Subsection icon={Users} title={`Members (${members.length})`}>
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    {members.map((m, i) => (
+                      <div key={m.id} style={{
+                        display: "grid",
+                        gridTemplateColumns: "auto 1fr auto auto",
+                        alignItems: "center", gap: 12,
+                        padding: "12px 4px",
+                        borderTop: i === 0 ? "none" : "1px dotted rgba(30,41,59,0.5)",
+                      }}>
+                        <div style={{
+                          width: 32, height: 32, borderRadius: "50%",
+                          background: "rgba(30,41,59,0.7)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontFamily: "'Instrument Serif', Georgia, serif",
+                          fontStyle: "italic", fontSize: 16,
+                          color: "#cbd5e1",
+                        }}>
+                          {m.name[0].toUpperCase()}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{
+                            fontFamily: "'Manrope', system-ui, sans-serif",
+                            fontSize: 13, color: "#e2e8f0", fontWeight: 500,
+                          }}>
+                            {m.name}
+                            {m.user_id === me?.id && (
+                              <span style={{ marginLeft: 8, fontSize: 10, color: "#52525b", fontStyle: "italic" }}>
+                                you
+                              </span>
+                            )}
+                          </div>
+                          <div style={{
+                            fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                            color: "#52525b", marginTop: 2,
+                          }}>
+                            {m.email}
+                          </div>
+                        </div>
+                        <RolePill role={m.role} />
+                        {canAdmin && m.user_id !== me?.id ? (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <select value={m.role} onChange={e => changeRole(m.id, e.target.value)}
+                              style={{ ...selectStyle, minWidth: 0, padding: "4px 8px", fontSize: 11 }}>
+                              <option value="viewer">viewer</option>
+                              <option value="admin">admin</option>
+                              <option value="owner">owner</option>
+                            </select>
+                            <button onClick={() => removeM(m.id)} style={iconGhost} title="Remove">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ) : <span />}
+                      </div>
+                    ))}
+                  </div>
+                </Subsection>
+
+                {invites.length > 0 && (
+                  <Subsection icon={Clock} title="Pending invites">
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      {invites.map((inv, i) => (
+                        <div key={inv.id} style={{
+                          display: "grid", gridTemplateColumns: "1fr auto auto",
+                          alignItems: "center", gap: 12,
+                          padding: "11px 4px",
+                          borderTop: i === 0 ? "none" : "1px dotted rgba(30,41,59,0.5)",
+                        }}>
+                          <div>
+                            <div style={{
+                              fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#cbd5e1",
+                            }}>
+                              {inv.email}
+                            </div>
+                            <div style={{
+                              fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                              color: "#52525b", marginTop: 2, letterSpacing: "0.1em", textTransform: "uppercase",
+                            }}>
+                              {inv.role} · expires {new Date(inv.expires_at).toLocaleDateString("en-IN")}
+                            </div>
+                          </div>
+                          <span style={{
+                            padding: "2px 10px", borderRadius: 99,
+                            border: "1px solid rgba(251,191,36,0.35)",
+                            color: "#fcd34d", fontSize: 10,
+                            fontFamily: "'JetBrains Mono', monospace",
+                            letterSpacing: "0.12em", textTransform: "uppercase",
+                          }}>
+                            Pending
+                          </span>
+                          {canAdmin && (
+                            <button onClick={() => revokeInvite(inv.id)} style={iconGhost}>
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${ROLE_COLOR[m.role] || ROLE_COLOR.viewer}`}>
-                      {ROLE_ICON[m.role]}{m.role}
-                    </span>
-                    {canAdmin && m.user_id !== me?.id && (
-                      <div className="flex items-center gap-1">
-                        <select value={m.role} onChange={e => changeRole(m.id, e.target.value)}
-                          className="rounded border border-zinc-700 bg-zinc-800 text-xs text-zinc-300 px-1.5 py-1 focus:outline-none">
-                          <option value="viewer">viewer</option>
-                          <option value="admin">admin</option>
-                          <option value="owner">owner</option>
+                  </Subsection>
+                )}
+
+                {canAdmin && (
+                  <Subsection icon={Plus} title="Invite new member">
+                    <form onSubmit={sendInvite} style={{
+                      display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end",
+                    }}>
+                      <Field label="Email address" style={{ flex: 1, minWidth: 200 }}>
+                        <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+                          required placeholder="accountant@example.com" style={inputStyle} />
+                      </Field>
+                      <Field label="Role">
+                        <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} style={selectStyle}>
+                          <option value="viewer">Viewer — read-only</option>
+                          <option value="admin">Admin — upload &amp; reconcile</option>
+                          <option value="owner">Owner — full access</option>
                         </select>
-                        <button onClick={() => removeM(m.id)} className="text-zinc-600 hover:text-red-400 transition-colors p-1"><Trash2 size={13} /></button>
+                      </Field>
+                      <button type="submit" disabled={inviting} style={primaryBtn(inviting)}>
+                        {inviting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                        Send invite
+                      </button>
+                    </form>
+                    {newInviteUrl && (
+                      <div style={{
+                        marginTop: 14, padding: 12,
+                        border: "1px solid rgba(52,211,153,0.3)",
+                        background: "linear-gradient(90deg, rgba(52,211,153,0.06), transparent 60%)",
+                        borderRadius: 10,
+                      }}>
+                        <div style={{
+                          fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                          letterSpacing: "0.14em", textTransform: "uppercase",
+                          color: "#34d399", marginBottom: 8,
+                        }}>
+                          Share this link · valid 7 days
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <code style={{
+                            flex: 1,
+                            fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+                            color: "#cbd5e1",
+                            padding: "8px 10px", borderRadius: 7,
+                            background: "rgba(15,23,42,0.6)",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>
+                            {newInviteUrl}
+                          </code>
+                          <button onClick={() => { navigator.clipboard.writeText(newInviteUrl); toast("Copied", "success"); }}
+                            style={iconGhost}>
+                            <Copy size={13} />
+                          </button>
+                        </div>
                       </div>
                     )}
-                  </div>
-                ))}
-              </div>
-            </div>
+                  </Subsection>
+                )}
 
-            {/* Pending invites */}
-            {invites.length > 0 && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-zinc-800"><h2 className="text-sm font-semibold text-zinc-300">Pending Invites</h2></div>
-                <div className="divide-y divide-zinc-800/60">
-                  {invites.map(inv => (
-                    <div key={inv.id} className="flex items-center gap-3 px-5 py-3">
-                      <div className="flex-1">
-                        <p className="text-sm text-zinc-300 font-mono">{inv.email}</p>
-                        <p className="text-xs text-zinc-600">Role: {inv.role} · Expires {new Date(inv.expires_at).toLocaleDateString("en-IN")}</p>
+                <Subsection icon={Shield} title="Role permissions">
+                  <div style={{
+                    display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: 12,
+                  }}>
+                    {[
+                      { role: "viewer", body: "View dashboard, ledger, reports" },
+                      { role: "admin",  body: "Upload CSV, reconcile, edit categories" },
+                      { role: "owner",  body: "All + manage team, API keys, org settings" },
+                    ].map(r => (
+                      <div key={r.role} style={{
+                        padding: 14, borderRadius: 10,
+                        background: "rgba(15,23,42,0.4)",
+                        border: "1px solid rgba(30,41,59,0.6)",
+                      }}>
+                        <RolePill role={r.role} />
+                        <p style={{
+                          margin: "10px 0 0", fontSize: 12, color: "#94a3b8",
+                          fontFamily: "'Manrope', system-ui, sans-serif", lineHeight: 1.55,
+                        }}>
+                          {r.body}
+                        </p>
                       </div>
-                      <span className="text-xs border border-amber-800 text-amber-400 rounded-full px-2 py-0.5">Pending</span>
-                      {canAdmin && <button onClick={() => revokeInvite(inv.id)} className="text-zinc-600 hover:text-red-400 p-1"><Trash2 size={13} /></button>}
-                    </div>
-                  ))}
-                </div>
-              </div>
+                    ))}
+                  </div>
+                </Subsection>
+              </Section>
             )}
 
-            {/* Invite form */}
-            {canAdmin && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center gap-2">
-                  <Plus size={14} className="text-zinc-400" /><h2 className="text-sm font-semibold">Invite Team Member</h2>
+            {tab === "keys" && org && (
+              <Section kicker={tabKicker("keys")} title="API Keys">
+                <div style={{
+                  display: "flex", gap: 10,
+                  padding: 14, borderRadius: 10, marginBottom: 22,
+                  border: "1px solid rgba(251,191,36,0.3)",
+                  background: "rgba(251,191,36,0.04)",
+                }}>
+                  <AlertTriangle size={14} style={{ color: "#fcd34d", flexShrink: 0, marginTop: 2 }} />
+                  <p style={{
+                    margin: 0, fontSize: 12.5, color: "#fcd34d",
+                    fontFamily: "'Manrope', system-ui, sans-serif", lineHeight: 1.55,
+                  }}>
+                    API keys grant programmatic access to your org&apos;s data. Stored hashed — they&apos;re shown only once. Rotate regularly and revoke any you don&apos;t use.
+                  </p>
                 </div>
-                <form onSubmit={sendInvite} className="px-5 py-4 flex flex-wrap gap-3 items-end">
-                  <div className="flex-1 min-w-[180px]">
-                    <label className="block text-xs text-zinc-400 mb-1.5">Email address</label>
-                    <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} required
-                      placeholder="accountant@example.com"
-                      className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 placeholder-zinc-600" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1.5">Role</label>
-                    <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}
-                      className="rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-300 focus:outline-none">
-                      <option value="viewer">Viewer — read-only</option>
-                      <option value="admin">Admin — upload & reconcile</option>
-                      <option value="owner">Owner — full access</option>
-                    </select>
-                  </div>
-                  <button type="submit" disabled={inviting}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-semibold px-4 py-2 text-sm">
-                    {inviting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}Send Invite
-                  </button>
-                </form>
-                {newInviteUrl && (
-                  <div className="mx-5 mb-4 rounded-lg border border-emerald-800 bg-emerald-950/30 p-3">
-                    <p className="text-xs text-emerald-400 font-semibold mb-1.5">Share this invite link:</p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 text-xs text-zinc-300 bg-zinc-900 rounded px-2 py-1.5 font-mono truncate">{newInviteUrl}</code>
-                      <button onClick={() => { navigator.clipboard.writeText(newInviteUrl); toast("Copied!", "success"); }}
-                        className="text-zinc-400 hover:text-white p-1.5 rounded border border-zinc-700 hover:border-zinc-500">
+
+                <Subsection icon={Key} title={`Active keys (${apiKeys.length})`}>
+                  {apiKeys.length === 0 ? (
+                    <div style={{
+                      textAlign: "center", padding: "32px 12px",
+                      fontSize: 12, color: "#52525b",
+                      fontFamily: "'Manrope', system-ui, sans-serif",
+                    }}>
+                      No API keys yet.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      {apiKeys.map((k, i) => (
+                        <div key={k.id} style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto auto",
+                          alignItems: "center", gap: 12,
+                          padding: "12px 4px",
+                          borderTop: i === 0 ? "none" : "1px dotted rgba(30,41,59,0.5)",
+                        }}>
+                          <div>
+                            <div style={{
+                              fontFamily: "'Manrope', system-ui, sans-serif",
+                              fontSize: 13, color: "#e2e8f0", fontWeight: 500,
+                            }}>
+                              {k.name}
+                            </div>
+                            <div style={{ display: "flex", gap: 10, marginTop: 3, alignItems: "center" }}>
+                              <code style={{
+                                fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+                                color: "#52525b",
+                              }}>
+                                {k.key_prefix}•••••••••••••
+                              </code>
+                              {k.last_used && (
+                                <span style={{ fontSize: 10, color: "#52525b" }}>
+                                  Last used {new Date(k.last_used).toLocaleDateString("en-IN")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <span style={{
+                            fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                            letterSpacing: "0.1em", textTransform: "uppercase",
+                            color: "#52525b",
+                          }}>
+                            {new Date(k.created_at).toLocaleDateString("en-IN")}
+                          </span>
+                          {canAdmin && (
+                            <button onClick={() => revokeKey(k.id)} style={iconGhost} title="Revoke">
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Subsection>
+
+                {revealedKey && (
+                  <div style={{
+                    margin: "16px 0",
+                    padding: 14, borderRadius: 12,
+                    border: "1px solid rgba(52,211,153,0.4)",
+                    background: "linear-gradient(90deg, rgba(52,211,153,0.06), transparent 60%)",
+                  }}>
+                    <div style={{
+                      fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                      letterSpacing: "0.16em", textTransform: "uppercase",
+                      color: "#34d399", marginBottom: 8,
+                    }}>
+                      New API key · copy it now, it won&apos;t be shown again
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <code style={{
+                        flex: 1,
+                        fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                        color: "#e2e8f0",
+                        padding: "10px 12px", borderRadius: 8,
+                        background: "rgba(10,14,26,0.7)",
+                        border: "1px solid rgba(30,41,59,0.7)",
+                        wordBreak: "break-all",
+                      }}>
+                        {revealedKey}
+                      </code>
+                      <button onClick={() => { navigator.clipboard.writeText(revealedKey); toast("Copied", "success"); }}
+                        style={iconGhost}>
                         <Copy size={13} />
                       </button>
                     </div>
-                    <p className="text-xs text-zinc-500 mt-1.5">Valid for 7 days. Invitee must have an account.</p>
                   </div>
                 )}
-              </div>
+
+                {canAdmin && (
+                  <Subsection icon={Plus} title="Generate new key">
+                    <form onSubmit={createAPIKey} style={{
+                      display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end",
+                    }}>
+                      <Field label="Key name" style={{ flex: 1, minWidth: 220 }}>
+                        <input value={newKeyName} onChange={e => setNewKeyName(e.target.value)} required
+                          placeholder="e.g. Shopify Webhook, Zapier" style={inputStyle} />
+                      </Field>
+                      <button type="submit" disabled={creatingKey} style={primaryBtn(creatingKey)}>
+                        {creatingKey ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}
+                        Generate key
+                      </button>
+                    </form>
+                  </Subsection>
+                )}
+              </Section>
             )}
 
-            {/* Role guide */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/20 p-4">
-              <p className="text-xs font-semibold text-zinc-400 mb-2">Role permissions</p>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                {[
-                  { role: "viewer", perms: "View dashboard, ledger, reports" },
-                  { role: "admin",  perms: "Upload CSV, reconcile, edit categories" },
-                  { role: "owner",  perms: "All + manage team, API keys, org settings" },
-                ].map(r => (
-                  <div key={r.role} className="rounded-lg bg-zinc-900 p-2.5">
-                    <div className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium mb-1.5 ${ROLE_COLOR[r.role]}`}>{ROLE_ICON[r.role]}{r.role}</div>
-                    <p className="text-zinc-500 leading-relaxed">{r.perms}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── API Keys ── */}
-        {tab === "keys" && org && (
-          <div className="space-y-5">
-            <div className="rounded-xl border border-amber-800/40 bg-amber-950/20 p-4 flex gap-3">
-              <AlertTriangle size={15} className="text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-300/80 leading-relaxed">
-                API keys grant programmatic access to your organisation&apos;s data. 
-                Store them securely — they&apos;re shown only once. Rotate keys regularly and revoke any you no longer use.
-              </p>
-            </div>
-
-            {/* Existing keys */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center gap-2">
-                <Key size={14} className="text-zinc-400" /><h2 className="text-sm font-semibold">Active Keys</h2>
-                <span className="ml-auto text-xs text-zinc-500">{apiKeys.length} key{apiKeys.length !== 1 ? "s" : ""}</span>
-              </div>
-              {apiKeys.length === 0 ? (
-                <div className="px-5 py-8 text-center text-xs text-zinc-600">No API keys yet.</div>
-              ) : (
-                <div className="divide-y divide-zinc-800/60">
-                  {apiKeys.map(k => (
-                    <div key={k.id} className="flex items-center gap-3 px-5 py-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-zinc-200 font-medium">{k.name}</p>
-                        <div className="flex items-center gap-3 mt-0.5">
-                          <code className="text-xs text-zinc-500 font-mono">{k.key_prefix}•••••••••••••</code>
-                          {k.last_used && <span className="text-xs text-zinc-600">Last used {new Date(k.last_used).toLocaleDateString("en-IN")}</span>}
+            {tab === "audit" && org && (
+              <Section kicker={tabKicker("audit")} title="Audit Log">
+                <Subsection
+                  icon={Clock}
+                  title={`Last 50 events`}
+                  action={
+                    <button onClick={() => loadAudit(org.id)} style={iconGhost}>
+                      <RefreshCw size={13} />
+                    </button>
+                  }
+                >
+                  {auditLogs.length === 0 ? (
+                    <div style={{
+                      textAlign: "center", padding: "32px 12px",
+                      fontSize: 12, color: "#52525b",
+                      fontFamily: "'Manrope', system-ui, sans-serif",
+                    }}>
+                      No audit events yet. Uploads, reconciliations and team changes will land here.
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: "flex", flexDirection: "column",
+                      maxHeight: 520, overflowY: "auto",
+                    }}>
+                      {auditLogs.map((log, i) => (
+                        <div key={log.id} style={{
+                          display: "grid", gridTemplateColumns: "1fr auto",
+                          alignItems: "flex-start", gap: 14,
+                          padding: "10px 4px",
+                          borderTop: i === 0 ? "none" : "1px dotted rgba(30,41,59,0.4)",
+                        }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              <code style={{
+                                fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+                                color: "#34d399",
+                              }}>
+                                {log.action}
+                              </code>
+                              {log.resource && (
+                                <span style={{
+                                  fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                                  color: "#52525b",
+                                }}>
+                                  {log.resource}
+                                </span>
+                              )}
+                            </div>
+                            {log.detail && (
+                              <p style={{
+                                margin: "3px 0 0", fontSize: 11, color: "#52525b",
+                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                              }}>
+                                {log.detail}
+                              </p>
+                            )}
+                          </div>
+                          <span style={{
+                            fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                            letterSpacing: "0.1em", textTransform: "uppercase",
+                            color: "#475569", whiteSpace: "nowrap",
+                          }}>
+                            {new Date(log.created_at).toLocaleString("en-IN", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })}
+                          </span>
                         </div>
+                      ))}
+                    </div>
+                  )}
+                </Subsection>
+              </Section>
+            )}
+
+            {tab === "gstin" && (
+              <Section kicker={tabKicker("gstin")} title="GSTIN Tool">
+                <Subsection icon={Shield} title="Validate a GSTIN"
+                  action={
+                    <span style={{
+                      fontFamily: "'JetBrains Mono', monospace", fontSize: 9,
+                      letterSpacing: "0.16em", textTransform: "uppercase",
+                      color: "#52525b",
+                      padding: "3px 8px", borderRadius: 99,
+                      border: "1px solid rgba(30,41,59,0.7)",
+                    }}>
+                      Free
+                    </span>
+                  }
+                >
+                  <p style={{
+                    margin: "0 0 14px", fontSize: 13, color: "#94a3b8", lineHeight: 1.55,
+                    fontFamily: "'Manrope', system-ui, sans-serif",
+                  }}>
+                    Verify any GSTIN before raising an invoice or filing GSTR-1 / GSTR-3B.
+                  </p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input value={gstinInput} onChange={e => setGstinInput(e.target.value.toUpperCase())}
+                      onKeyDown={e => e.key === "Enter" && validateGSTIN()}
+                      placeholder="27AAPFU0939F1ZV" maxLength={15}
+                      style={{
+                        ...inputStyle,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        letterSpacing: "0.06em",
+                        flex: 1,
+                      }} />
+                    <button onClick={validateGSTIN} disabled={validating || gstinInput.length < 15}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "10px 16px", borderRadius: 8, border: "none",
+                        background: "#38bdf8", color: "#0f172a",
+                        fontSize: 13, fontWeight: 700, cursor: "pointer",
+                        fontFamily: "'Manrope', system-ui, sans-serif",
+                        opacity: validating || gstinInput.length < 15 ? 0.5 : 1,
+                      }}>
+                      {validating ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                      Check
+                    </button>
+                  </div>
+
+                  {gstinResult && (
+                    <div style={{
+                      marginTop: 14,
+                      padding: 14, borderRadius: 10,
+                      border: `1px solid ${gstinResult.valid ? "rgba(52,211,153,0.35)" : "rgba(251,113,133,0.35)"}`,
+                      background: gstinResult.valid ? "rgba(52,211,153,0.06)" : "rgba(251,113,133,0.05)",
+                    }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8, marginBottom: 8,
+                      }}>
+                        {gstinResult.valid
+                          ? <CheckCircle2 size={15} style={{ color: "#34d399" }} />
+                          : <XCircle size={15} style={{ color: "#fb7185" }} />}
+                        <span style={{
+                          fontFamily: "'Manrope', system-ui, sans-serif",
+                          fontSize: 13.5, fontWeight: 600,
+                          color: gstinResult.valid ? "#6ee7b7" : "#fda4af",
+                        }}>
+                          {gstinResult.valid ? "Valid GSTIN" : "Invalid GSTIN"}
+                        </span>
                       </div>
-                      <span className="text-xs text-zinc-600">{new Date(k.created_at).toLocaleDateString("en-IN")}</span>
-                      {canAdmin && (
-                        <button onClick={() => revokeKey(k.id)} className="text-zinc-600 hover:text-red-400 transition-colors p-1" title="Revoke">
-                          <Trash2 size={13} />
-                        </button>
+                      {gstinResult.valid ? (
+                        <div style={{
+                          display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
+                          gap: 12, fontSize: 11, color: "#94a3b8",
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }}>
+                          <div><span style={{ color: "#52525b" }}>State · </span>{gstinResult.state}</div>
+                          <div><span style={{ color: "#52525b" }}>Code · </span>{gstinResult.state_code}</div>
+                          <div><span style={{ color: "#52525b" }}>PAN · </span>{gstinResult.pan}</div>
+                        </div>
+                      ) : (
+                        <p style={{ margin: 0, fontSize: 12, color: "#fda4af" }}>{gstinResult.error}</p>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  )}
 
-            {/* Revealed key */}
-            {revealedKey && (
-              <div className="rounded-xl border border-emerald-800 bg-emerald-950/30 p-4">
-                <p className="text-xs text-emerald-400 font-semibold mb-2">New API key — copy it now, it won&apos;t be shown again:</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs text-zinc-200 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 font-mono break-all">{revealedKey}</code>
-                  <button onClick={() => { navigator.clipboard.writeText(revealedKey); toast("Copied!", "success"); }}
-                    className="shrink-0 p-2 rounded-lg border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white">
-                    <Copy size={14} />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Create key */}
-            {canAdmin && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center gap-2">
-                  <Plus size={14} className="text-zinc-400" /><h2 className="text-sm font-semibold">Create API Key</h2>
-                </div>
-                <form onSubmit={createAPIKey} className="px-5 py-4 flex gap-3 items-end flex-wrap">
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-xs text-zinc-400 mb-1.5">Key name</label>
-                    <input value={newKeyName} onChange={e => setNewKeyName(e.target.value)} required
-                      placeholder="e.g. Shopify Webhook, Zapier Integration"
-                      className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 placeholder-zinc-600" />
-                  </div>
-                  <button type="submit" disabled={creatingKey}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-semibold px-4 py-2 text-sm">
-                    {creatingKey ? <Loader2 size={13} className="animate-spin" /> : <Key size={13} />}Generate Key
-                  </button>
-                </form>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Audit Log ── */}
-        {tab === "audit" && org && (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center gap-2">
-              <Clock size={14} className="text-zinc-400" /><h2 className="text-sm font-semibold">Audit Log</h2>
-              <span className="ml-auto text-xs text-zinc-500">Last 50 events</span>
-              <button onClick={() => loadAudit(org.id)} className="text-zinc-500 hover:text-zinc-300 p-1"><RefreshCw size={13} /></button>
-            </div>
-            {auditLogs.length === 0 ? (
-              <div className="px-5 py-8 text-center text-xs text-zinc-600">No audit events yet. Actions like uploads, reconciliations, and team changes will appear here.</div>
-            ) : (
-              <div className="divide-y divide-zinc-800/50 max-h-[500px] overflow-y-auto">
-                {auditLogs.map(log => (
-                  <div key={log.id} className="flex items-start gap-3 px-5 py-3 hover:bg-zinc-900/40">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <code className="text-xs text-emerald-400 font-mono">{log.action}</code>
-                        {log.resource && <span className="text-xs text-zinc-600 font-mono">{log.resource}</span>}
-                      </div>
-                      {log.detail && <p className="text-xs text-zinc-600 mt-0.5 truncate">{log.detail}</p>}
+                  <details style={{ marginTop: 18 }}>
+                    <summary style={{
+                      cursor: "pointer", fontSize: 12, color: "#64748b",
+                      fontFamily: "'Manrope', system-ui, sans-serif",
+                    }}>
+                      View state codes
+                    </summary>
+                    <div style={{
+                      marginTop: 12,
+                      display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+                      gap: 4,
+                      fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                    }}>
+                      {[["01","J&K"],["02","Himachal"],["03","Punjab"],["06","Haryana"],["07","Delhi"],["08","Rajasthan"],["09","UP"],["10","Bihar"],["19","West Bengal"],["20","Jharkhand"],["21","Odisha"],["22","Chhattisgarh"],["23","MP"],["24","Gujarat"],["27","Maharashtra"],["29","Karnataka"],["30","Goa"],["32","Kerala"],["33","Tamil Nadu"],["36","Telangana"],["37","Andhra Pradesh"]].map(([code, name]) => (
+                        <div key={code} style={{ display: "flex", gap: 6 }}>
+                          <span style={{ color: "#3f3f46", width: 22 }}>{code}</span>
+                          <span style={{ color: "#94a3b8" }}>{name}</span>
+                        </div>
+                      ))}
                     </div>
-                    <span className="text-xs text-zinc-600 whitespace-nowrap shrink-0">
-                      {new Date(log.created_at).toLocaleString("en-IN", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  </details>
+                </Subsection>
+              </Section>
             )}
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* ── GSTIN Tool ── */}
-        {tab === "gstin" && (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center gap-2">
-              <Shield size={14} className="text-zinc-400" /><h2 className="text-sm font-semibold">GSTIN Validator</h2>
-              <span className="ml-auto text-xs bg-zinc-800 text-zinc-400 rounded-full px-2 py-0.5">Free</span>
-            </div>
-            <div className="px-5 py-4">
-              <p className="text-xs text-zinc-500 mb-3">Verify any GSTIN before raising an invoice or filing GSTR-1 / GSTR-3B.</p>
-              <div className="flex gap-2">
-                <input value={gstinInput} onChange={e => setGstinInput(e.target.value.toUpperCase())}
-                  onKeyDown={e => e.key === "Enter" && validateGSTIN()}
-                  placeholder="27AAPFU0939F1ZV" maxLength={15}
-                  className="flex-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white font-mono tracking-wider focus:outline-none focus:border-emerald-500 placeholder-zinc-600" />
-                <button onClick={validateGSTIN} disabled={validating || gstinInput.length < 15}
-                  className="rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-semibold px-4 py-2 text-sm flex items-center gap-1.5">
-                  {validating ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}Check
-                </button>
-              </div>
-              {gstinResult && (
-                <div className={`mt-3 rounded-lg border px-4 py-3 ${gstinResult.valid ? "border-emerald-800 bg-emerald-950/40" : "border-red-800 bg-red-950/40"}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    {gstinResult.valid ? <CheckCircle2 size={14} className="text-emerald-400" /> : <XCircle size={14} className="text-red-400" />}
-                    <span className={`text-sm font-semibold ${gstinResult.valid ? "text-emerald-400" : "text-red-400"}`}>{gstinResult.valid ? "Valid GSTIN" : "Invalid GSTIN"}</span>
-                  </div>
-                  {gstinResult.valid ? (
-                    <div className="grid grid-cols-3 gap-2 text-xs text-zinc-400">
-                      <div><span className="text-zinc-600">State: </span>{gstinResult.state}</div>
-                      <div><span className="text-zinc-600">Code: </span>{gstinResult.state_code}</div>
-                      <div><span className="text-zinc-600">PAN: </span><span className="font-mono">{gstinResult.pan}</span></div>
-                    </div>
-                  ) : <p className="text-xs text-red-400">{gstinResult.error}</p>}
-                </div>
-              )}
-              <details className="mt-4">
-                <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-300">View all state codes</summary>
-                <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-1 text-xs">
-                  {[["01","J&K"],["02","Himachal Pradesh"],["03","Punjab"],["06","Haryana"],["07","Delhi"],["08","Rajasthan"],["09","Uttar Pradesh"],["10","Bihar"],["19","West Bengal"],["20","Jharkhand"],["21","Odisha"],["22","Chhattisgarh"],["23","Madhya Pradesh"],["24","Gujarat"],["27","Maharashtra"],["29","Karnataka"],["30","Goa"],["32","Kerala"],["33","Tamil Nadu"],["36","Telangana"],["37","Andhra Pradesh"]].map(([code, name]) => (
-                    <div key={code} className="flex gap-2 text-zinc-500"><span className="font-mono text-zinc-600 w-6">{code}</span><span>{name}</span></div>
-                  ))}
-                </div>
-              </details>
-            </div>
-          </div>
-        )}
+      <style>{`
+        @media (max-width: 860px) {
+          .settings-split {
+            grid-template-columns: 1fr !important;
+            gap: 24px !important;
+          }
+          .settings-split > nav {
+            position: static !important;
+            border-right: none !important;
+            border-bottom: 1px solid rgba(30,41,59,0.55);
+            padding-right: 0 !important;
+            padding-bottom: 12px;
+            flex-direction: row !important;
+            flex-wrap: wrap;
+          }
+        }
+        @keyframes rise {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ───────── sub-components ───────── */
+
+function Section({
+  kicker, title, children,
+}: { kicker: string; title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ opacity: 0, animation: "rise 400ms ease-out forwards" }}>
+      <div style={{
+        display: "flex", alignItems: "baseline", gap: 14, marginBottom: 22,
+      }}>
+        <span style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 11, letterSpacing: "0.2em", color: "#3f3f46",
+        }}>
+          {kicker}
+        </span>
+        <h2 style={{
+          margin: 0,
+          fontFamily: "'Instrument Serif', Georgia, serif",
+          fontSize: 26, fontStyle: "italic", lineHeight: 1,
+          color: "#f1f5f9",
+        }}>
+          {title}
+        </h2>
+        <div style={{ flex: 1, height: 1, background: "rgba(30,41,59,0.45)" }} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+        {children}
       </div>
     </div>
   );
 }
+
+function Subsection({
+  icon: Icon, title, children, action,
+}: {
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  title: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+      }}>
+        <Icon size={13} style={{ color: "#475569" }} />
+        <h3 style={{
+          margin: 0,
+          fontFamily: "'Manrope', system-ui, sans-serif",
+          fontSize: 12.5, fontWeight: 600, letterSpacing: "0.04em",
+          color: "#cbd5e1",
+        }}>
+          {title}
+        </h3>
+        {action && <span style={{ marginLeft: "auto" }}>{action}</span>}
+      </div>
+      <div style={{
+        padding: 18, borderRadius: 12,
+        border: "1px solid rgba(30,41,59,0.6)",
+        background: "rgba(15,23,42,0.4)",
+      }}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function Field({
+  label, children, style,
+}: { label: string; children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 6, ...style }}>
+      <span style={{
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase",
+        color: "#52525b",
+      }}>
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function ReadOnly({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <div style={{
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase",
+        color: "#52525b", marginBottom: 6,
+      }}>
+        {label}
+      </div>
+      <div style={{
+        padding: "9px 12px", borderRadius: 8,
+        border: "1px solid rgba(30,41,59,0.7)",
+        background: "rgba(15,23,42,0.5)",
+        fontFamily: mono ? "'JetBrains Mono', monospace" : "'Manrope', system-ui, sans-serif",
+        fontSize: mono ? 12 : 13, color: "#e2e8f0",
+      }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function RolePill({ role }: { role: string }) {
+  const c = ROLE_COLOR[role] ?? ROLE_COLOR.viewer;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "3px 10px", borderRadius: 99,
+      border: `1px solid ${c.border}`,
+      background: c.bg,
+      color: c.text, fontSize: 10.5,
+      fontFamily: "'JetBrains Mono', monospace",
+      letterSpacing: "0.12em", textTransform: "uppercase",
+    }}>
+      {ROLE_ICON[role]} {role}
+    </span>
+  );
+}
+
+function tabKicker(id: Tab): string {
+  return TABS.find(t => t.id === id)?.kicker ?? "";
+}
+
+/* ───────── styles ───────── */
+
+const pageBg: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#0a0e1a",
+  color: "#f8fafc",
+  fontFamily: "'Manrope', system-ui, sans-serif",
+  position: "relative",
+  overflow: "hidden",
+};
+
+function FontImport() {
+  return (
+    <style>{`@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`}</style>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "9px 12px", borderRadius: 8,
+  border: "1px solid rgba(30,41,59,0.7)",
+  background: "rgba(15,23,42,0.6)",
+  color: "#e2e8f0", fontSize: 13,
+  fontFamily: "'Manrope', system-ui, sans-serif",
+  outline: "none",
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: "9px 12px", borderRadius: 8,
+  border: "1px solid rgba(30,41,59,0.7)",
+  background: "rgba(15,23,42,0.6)",
+  color: "#e2e8f0", fontSize: 13,
+  fontFamily: "'Manrope', system-ui, sans-serif",
+  cursor: "pointer",
+};
+
+const iconGhost: React.CSSProperties = {
+  width: 28, height: 28, borderRadius: 6,
+  border: "1px solid rgba(30,41,59,0.7)",
+  background: "transparent", color: "#64748b",
+  cursor: "pointer",
+  display: "flex", alignItems: "center", justifyContent: "center",
+};
+
+const primaryBtn = (busy: boolean): React.CSSProperties => ({
+  display: "flex", alignItems: "center", gap: 7,
+  padding: "9px 14px", borderRadius: 8, border: "none",
+  cursor: busy ? "wait" : "pointer",
+  background: "#34d399", color: "#0f172a",
+  fontSize: 12.5, fontWeight: 700,
+  fontFamily: "'Manrope', system-ui, sans-serif",
+  opacity: busy ? 0.6 : 1,
+});

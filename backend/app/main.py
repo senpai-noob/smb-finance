@@ -1,3 +1,15 @@
+import sys
+
+# Ensure stdout/stderr can encode all UTF-8 characters (₹, em-dashes, etc.).
+# On Windows the default is cp1252 which raises UnicodeEncodeError whenever
+# SQLAlchemy echo=True or any logger emits a line containing ₹.
+# This must run before any logging configuration touches the streams.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -9,7 +21,7 @@ from app.core.config import settings
 from app.db.session import engine
 import app.db.base  # noqa
 from app.models.base import Base
-from app.api.routes import auth, orgs, transactions, invites, api_keys, audit, reports, billing
+from app.api.routes import auth, orgs, transactions, invites, api_keys, audit, reports, billing, reconcile_v2
 
 Base.metadata.create_all(bind=engine)
 
@@ -80,3 +92,4 @@ app.include_router(api_keys.router,     prefix="/api")
 app.include_router(audit.router,        prefix="/api")
 app.include_router(reports.router,      prefix="/api")
 app.include_router(billing.router,      prefix="/api")
+app.include_router(reconcile_v2.router, prefix="/api")

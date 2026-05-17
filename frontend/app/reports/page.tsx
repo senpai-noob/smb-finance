@@ -8,13 +8,17 @@ import OrgSelector, { Org } from "@/components/OrgSelector";
 import { Skeleton } from "@/components/Skeleton";
 import { useToast } from "@/components/Toast";
 import {
-  TrendingUp, TrendingDown, Minus, FileText, Receipt,
-  Mail, Loader2, RefreshCw, Sparkles, FileSpreadsheet,
+  TrendingUp, TrendingDown, Minus, Mail, Loader2, Sparkles,
+  FileSpreadsheet, X, ArrowUpRight,
 } from "lucide-react";
 
 const MonthlyTrendChart = dynamic(
   () => import("@/components/ExpenseChart").then(m => ({ default: m.MonthlyTrendChart })),
-  { ssr: false, loading: () => <div className="h-[280px] flex items-center justify-center"><div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div> }
+  { ssr: false, loading: () => (
+    <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Loader2 size={20} style={{ color: "#34d399" }} className="animate-spin" />
+    </div>
+  ) }
 );
 
 interface CategoryTotal { category: string; total: number; count: number; percentage: number; }
@@ -35,19 +39,9 @@ interface GSTSummary {
 }
 
 const fmt = (v: number) => `₹${Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+const fmtSigned = (v: number) => `${v < 0 ? "−" : ""}₹${Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
-function PLRow({ label, value, sub, bold, color }:
-  { label: string; value: string; sub?: string; bold?: boolean; color?: string }) {
-  return (
-    <div className={`flex items-center justify-between py-2.5 border-b border-zinc-800/50 last:border-0 ${bold ? "font-semibold" : ""}`}>
-      <div>
-        <span className="text-sm text-zinc-300">{label}</span>
-        {sub && <span className="text-xs text-zinc-500 ml-2">{sub}</span>}
-      </div>
-      <span className={`font-mono text-sm ${color || "text-white"}`}>{value}</span>
-    </div>
-  );
-}
+type Tab = "pl" | "gst" | "monthly";
 
 export default function ReportsPage() {
   const router    = useRouter();
@@ -57,7 +51,7 @@ export default function ReportsPage() {
   const [summary, setSummary]     = useState<Summary | null>(null);
   const [gst, setGST]             = useState<GSTSummary | null>(null);
   const [loading, setLoading]     = useState(false);
-  const [tab, setTab]             = useState<"pl"|"gst"|"monthly">("pl");
+  const [tab, setTab]             = useState<Tab>("pl");
   const [dateFrom, setDateFrom]   = useState("");
   const [dateTo, setDateTo]       = useState("");
   const [insights, setInsights]   = useState<string[]>([]);
@@ -113,7 +107,7 @@ export default function ReportsPage() {
       );
       setInsights(r.insights);
       setLlmUsed(r.llm_used);
-      toast(r.llm_used ? "AI insights refreshed ✨" : "Insights refreshed", "success");
+      toast(r.llm_used ? "AI insights refreshed" : "Insights refreshed", "success");
     } catch { toast("Failed to refresh insights", "error"); }
     finally  { setLoadingInsights(false); }
   }
@@ -145,236 +139,705 @@ export default function ReportsPage() {
   })();
 
   const expenseLines = summary?.category_totals.filter(c => c.total < 0 && c.category !== "Income / Revenue") ?? [];
+  const incomeLine   = summary?.category_totals.find(c => c.category === "Income / Revenue");
+  const margin = summary && summary.total_income > 0
+    ? (summary.net_cashflow / summary.total_income) * 100
+    : null;
 
   return (
-    <div className="min-h-screen bg-zinc-950">
-      <Nav />
-      <div className="mx-auto max-w-5xl px-4 md:px-6 py-6">
+    <div style={pageBg}>
+      <FontImport />
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      {/* Atmosphere */}
+      <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", opacity: 0.04,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+        zIndex: 0,
+      }} />
+
+      <Nav />
+
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 1080, margin: "0 auto", padding: "32px 28px 80px" }}>
+
+        {/* Masthead */}
+        <header style={{
+          display: "flex", alignItems: "flex-end", justifyContent: "space-between",
+          paddingBottom: 18, borderBottom: "1px solid rgba(30,41,59,0.55)",
+          marginBottom: 28, flexWrap: "wrap", gap: 16,
+          opacity: 0, animation: "rise 500ms ease-out forwards",
+        }}>
           <div>
-            <h1 className="text-xl font-bold">Reports</h1>
-            {summary && <p className="text-xs text-zinc-500 mt-0.5">{summary.period_label}</p>}
+            <div style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase",
+              color: "#52525b", marginBottom: 8,
+            }}>
+              Statement of accounts
+            </div>
+            <h1 style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 38, lineHeight: 1, fontStyle: "italic",
+              color: "#f1f5f9", margin: 0,
+            }}>
+              Reports
+            </h1>
+            <div style={{
+              marginTop: 10,
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+              color: "#475569",
+            }}>
+              {summary?.period_label ?? "—"}
+            </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => { setDateFrom(currentFY.from); setDateTo(currentFY.to); }}
-              className="text-xs border border-zinc-700 hover:border-emerald-600 text-zinc-400 hover:text-emerald-400 rounded-lg px-3 py-1.5 transition-colors">
-              {currentFY.label}
-            </button>
-            <button onClick={() => { setDateFrom(""); setDateTo(""); }}
-              className="text-xs border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white rounded-lg px-3 py-1.5 transition-colors">
-              All time
-            </button>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-              className="rounded-lg border border-zinc-700 bg-zinc-900 text-xs text-zinc-300 px-2.5 py-1.5 focus:outline-none focus:border-emerald-500" />
-            <span className="text-zinc-600 text-xs">→</span>
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-              className="rounded-lg border border-zinc-700 bg-zinc-900 text-xs text-zinc-300 px-2.5 py-1.5 focus:outline-none focus:border-emerald-500" />
-            <OrgSelector selected={org} onSelect={setOrg} />
+          <OrgSelector selected={org} onSelect={setOrg} />
+        </header>
+
+        {/* Period controls + actions */}
+        <div style={{
+          display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center",
+          padding: "10px 12px", marginBottom: 22,
+          border: "1px solid rgba(30,41,59,0.6)",
+          background: "rgba(15,23,42,0.4)",
+          borderRadius: 12,
+        }}>
+          <button onClick={() => { setDateFrom(currentFY.from); setDateTo(currentFY.to); }} style={chipBtn(false)}>
+            {currentFY.label}
+          </button>
+          <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={chipBtn(false)}>
+            All time
+          </button>
+          <DateField value={dateFrom} onChange={setDateFrom} title="From" />
+          <span style={{ color: "#334155", fontSize: 11 }}>→</span>
+          <DateField value={dateTo} onChange={setDateTo} title="To" />
+
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+            {org && summary && summary.transaction_count > 0 && (
+              <>
+                <button onClick={refreshInsights} disabled={loadingInsights} style={smallBtn("amber")}>
+                  {loadingInsights ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                  {llmUsed ? "Refresh AI insights" : "Generate insights"}
+                </button>
+                <button onClick={() => setShowEmailForm(f => !f)} style={smallBtn("slate")}>
+                  <Mail size={11} /> Email
+                </button>
+                <button onClick={downloadExcel} disabled={downloadingExcel} style={smallBtn("emerald")}>
+                  {downloadingExcel ? <Loader2 size={11} className="animate-spin" /> : <FileSpreadsheet size={11} />}
+                  Excel
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Action bar */}
-        {org && summary && summary.transaction_count > 0 && (
-          <div className="flex flex-wrap gap-2 mb-6 p-3 rounded-xl border border-zinc-800 bg-zinc-900/30">
-            <button onClick={downloadExcel} disabled={downloadingExcel}
-              className="flex items-center gap-1.5 text-sm border border-zinc-700 hover:border-emerald-600 hover:text-emerald-400 text-zinc-300 rounded-lg px-3 py-2 transition-colors disabled:opacity-50">
-              {downloadingExcel ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
-              {downloadingExcel ? "Downloading…" : "Download Excel"}
-            </button>
-            <button onClick={() => setShowEmailForm(f => !f)}
-              className="flex items-center gap-1.5 text-sm border border-zinc-700 hover:border-sky-600 hover:text-sky-400 text-zinc-300 rounded-lg px-3 py-2 transition-colors">
-              <Mail size={14} /> Email Report
-            </button>
-            <button onClick={refreshInsights} disabled={loadingInsights}
-              className="flex items-center gap-1.5 text-sm border border-zinc-700 hover:border-yellow-600 hover:text-yellow-400 text-zinc-300 rounded-lg px-3 py-2 transition-colors disabled:opacity-50">
-              {loadingInsights ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {llmUsed ? "Refresh AI Insights" : "Generate AI Insights"}
-            </button>
-          </div>
-        )}
-
-        {/* Email form */}
         {showEmailForm && (
-          <form onSubmit={sendEmail}
-            className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-wrap gap-3 items-end">
-            <div className="flex-1 min-w-[220px]">
-              <label className="block text-xs text-zinc-400 mb-1.5">Send P&L report to</label>
+          <form onSubmit={sendEmail} style={{
+            display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end",
+            padding: 14, marginBottom: 22,
+            border: "1px solid rgba(56,189,248,0.25)",
+            background: "rgba(56,189,248,0.04)", borderRadius: 12,
+          }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <label style={{
+                display: "block",
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                letterSpacing: "0.14em", textTransform: "uppercase",
+                color: "#475569", marginBottom: 6,
+              }}>
+                Send P&L to
+              </label>
               <input type="email" value={emailTo} onChange={e => setEmailTo(e.target.value)} required
                 placeholder="accountant@example.com"
-                className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500 placeholder-zinc-600" />
+                style={{
+                  width: "100%", padding: "8px 12px", borderRadius: 7,
+                  border: "1px solid rgba(56,189,248,0.3)",
+                  background: "rgba(15,23,42,0.6)", color: "#e2e8f0",
+                  fontSize: 13, fontFamily: "'Manrope', system-ui, sans-serif",
+                }} />
             </div>
-            <button type="submit" disabled={sendingEmail}
-              className="flex items-center gap-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-semibold px-4 py-2 text-sm">
+            <button type="submit" disabled={sendingEmail} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "8px 14px", borderRadius: 7, border: "none", cursor: "pointer",
+              background: "#38bdf8", color: "#0f172a",
+              fontSize: 12.5, fontWeight: 700,
+              fontFamily: "'Manrope', system-ui, sans-serif",
+              opacity: sendingEmail ? 0.6 : 1,
+            }}>
               {sendingEmail ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
-              Send with Excel
+              Send with Excel attachment
             </button>
-            <p className="w-full text-xs text-zinc-600">
-              Requires SMTP config in <code className="text-zinc-500">.env</code> — see <code className="text-zinc-500">.env.example</code> for Gmail/Resend setup.
+            <button type="button" onClick={() => setShowEmailForm(false)} style={smallBtn("slate")}>
+              <X size={11} /> Cancel
+            </button>
+            <p style={{
+              width: "100%", margin: 0, marginTop: 4,
+              fontSize: 11, color: "#475569",
+              fontFamily: "'Manrope', system-ui, sans-serif",
+            }}>
+              Requires SMTP config in <code style={{ color: "#64748b", fontFamily: "'JetBrains Mono', monospace" }}>backend/.env</code>.
             </p>
           </form>
         )}
 
         {!org ? (
-          <div className="text-center py-20 text-zinc-500">Select an organisation to view reports.</div>
+          <div style={emptyState}>Select an organisation to view reports.</div>
         ) : loading ? (
-          <div className="space-y-4"><Skeleton className="h-10 w-64" /><Skeleton className="h-80" /></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-96" />
+          </div>
         ) : (
           <>
-            <div className="flex gap-1 mb-6 flex-wrap">
-              {[
-                { id: "pl",      label: "P&L Statement",  icon: FileText   },
-                { id: "gst",     label: "GST Summary",    icon: Receipt    },
-                { id: "monthly", label: "Monthly Trend",  icon: TrendingUp },
-              ].map(({ id, label, icon: Icon }) => (
-                <button key={id} onClick={() => setTab(id as typeof tab)}
-                  className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${tab === id ? "bg-emerald-500 text-zinc-950" : "border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500"}`}>
-                  <Icon size={13} />{label}
-                </button>
-              ))}
+            {/* Editorial tab strip */}
+            <div role="tablist" style={{
+              display: "flex", alignItems: "flex-end", gap: 28,
+              borderBottom: "1px solid rgba(30,41,59,0.7)",
+              marginBottom: 28,
+            }}>
+              {([
+                { id: "pl",      label: "Profit & Loss",  suffix: "statement" },
+                { id: "gst",     label: "GST",            suffix: "input credit" },
+                { id: "monthly", label: "Monthly",        suffix: "trend" },
+              ] as const).map(t => {
+                const active = tab === t.id;
+                return (
+                  <button key={t.id} role="tab" aria-selected={active}
+                    onClick={() => setTab(t.id)}
+                    style={{
+                      position: "relative", border: "none", background: "transparent",
+                      paddingBottom: 12, cursor: "pointer",
+                      fontFamily: "'Manrope', system-ui, sans-serif", fontSize: 13.5,
+                      color: active ? "#f1f5f9" : "#64748b",
+                    }}>
+                    {t.label}
+                    <span style={{
+                      fontFamily: "'Instrument Serif', Georgia, serif",
+                      fontStyle: "italic", marginLeft: 8,
+                      color: active ? "#6ee7b7" : "#3f3f46",
+                    }}>{t.suffix}</span>
+                    {active && (
+                      <span style={{
+                        position: "absolute", left: 0, right: 0, bottom: -1,
+                        height: 1, background: "#34d399",
+                      }} />
+                    )}
+                  </button>
+                );
+              })}
+              <span style={{
+                marginLeft: "auto", paddingBottom: 12,
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+                letterSpacing: "0.16em", textTransform: "uppercase", color: "#475569",
+              }}>
+                {summary ? `${summary.transaction_count.toLocaleString("en-IN")} txns` : "—"}
+              </span>
             </div>
 
-            {tab === "pl" && summary && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-                <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
-                  <h2 className="font-semibold">Profit & Loss Statement</h2>
-                  <span className="text-xs text-zinc-500">{summary.period_label}</span>
-                </div>
-                <div className="px-6 py-4">
-                  <p className="text-xs uppercase tracking-widest text-emerald-500 mb-2 font-semibold">Revenue</p>
-                  <PLRow label="Total Income" value={fmt(summary.total_income)} color="text-emerald-400"
-                    sub={`${summary.category_totals.find(c => c.category === "Income / Revenue")?.count ?? 0} transactions`} />
-                  <p className="text-xs uppercase tracking-widest text-red-500 mb-2 mt-5 font-semibold">Expenses</p>
-                  {expenseLines.map(cat => (
-                    <PLRow key={cat.category} label={cat.category} value={fmt(cat.total)} color="text-red-400"
-                      sub={`${cat.count} txns · ${cat.percentage.toFixed(1)}% of spend`} />
-                  ))}
-                  <PLRow label="Total Expenses" value={fmt(summary.total_expenses)} bold color="text-red-400" />
-                  <div className="mt-5 rounded-lg border border-zinc-700 bg-zinc-900/60 px-4 py-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {summary.net_cashflow > 0 ? <TrendingUp size={18} className="text-emerald-400" />
-                        : summary.net_cashflow < 0 ? <TrendingDown size={18} className="text-red-400" />
-                        : <Minus size={18} className="text-zinc-400" />}
-                      <span className="font-semibold">Net Cashflow</span>
-                    </div>
-                    <span className={`font-mono font-bold text-lg ${summary.net_cashflow >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                      {summary.net_cashflow >= 0 ? "+" : "−"}{fmt(summary.net_cashflow)}
-                    </span>
-                  </div>
-                  {summary.total_income > 0 && (
-                    <p className="text-xs text-zinc-500 mt-3 text-right">
-                      Net margin: {(summary.net_cashflow / summary.total_income * 100).toFixed(1)}% · {summary.transaction_count} transactions
-                    </p>
-                  )}
-                  {insights.length > 0 && (
-                    <div className="mt-5 border-t border-zinc-800 pt-5">
-                      <div className="flex items-center gap-2 mb-3">
-                        {llmUsed ? <Sparkles size={14} className="text-yellow-400" /> : <RefreshCw size={14} className="text-zinc-500" />}
-                        <span className="text-xs font-semibold text-zinc-300">
-                          {llmUsed ? "AI CFO Insights (Claude)" : "CFO Insights"}
-                        </span>
-                      </div>
-                      <ul className="space-y-2">
-                        {insights.map((ins, i) => (
-                          <li key={i} className="text-sm text-zinc-300 leading-relaxed pl-3 border-l-2 border-zinc-700">{ins}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {tab === "gst" && gst && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-                <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
-                  <h2 className="font-semibold">GST Input Tax Credit Summary</h2>
-                  <span className="text-xs text-zinc-500">{gst.period_label}</span>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-6 py-4 border-b border-zinc-800">
-                  {[
-                    { label: "Total Taxable",   value: fmt(gst.total_taxable) },
-                    { label: "Total GST (ITC)", value: fmt(gst.total_gst), hi: true },
-                    { label: "CGST (9%)",       value: fmt(gst.total_cgst) },
-                    { label: "SGST (9%)",       value: fmt(gst.total_sgst) },
-                  ].map(({ label, value, hi }) => (
-                    <div key={label} className={`rounded-lg p-3 ${hi ? "bg-amber-950/40 border border-amber-900" : "bg-zinc-900"}`}>
-                      <p className="text-xs text-zinc-500">{label}</p>
-                      <p className={`font-mono font-bold mt-1 ${hi ? "text-amber-400" : "text-white"}`}>{value}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[580px]">
-                    <thead className="border-b border-zinc-800">
-                      <tr>{["Category","Taxable","GST (18%)","CGST","SGST"].map(h => (
-                        <th key={h} className="px-4 py-3 text-xs text-zinc-400 font-medium text-right first:text-left">{h}</th>
-                      ))}</tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800/50">
-                      {gst.lines.map(l => (
-                        <tr key={l.category} className="hover:bg-zinc-900/40">
-                          <td className="px-4 py-3 text-zinc-300">{l.category}</td>
-                          <td className="px-4 py-3 text-right font-mono text-zinc-400">{fmt(l.taxable_amount)}</td>
-                          <td className="px-4 py-3 text-right font-mono font-semibold text-amber-400">{fmt(l.gst_amount)}</td>
-                          <td className="px-4 py-3 text-right font-mono text-zinc-400">{fmt(l.cgst)}</td>
-                          <td className="px-4 py-3 text-right font-mono text-zinc-400">{fmt(l.sgst)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="border-t border-zinc-700 bg-zinc-900/40">
-                      <tr>
-                        <td className="px-4 py-3 font-semibold text-zinc-200">Total</td>
-                        {[gst.total_taxable, gst.total_gst, gst.total_cgst, gst.total_sgst].map((v, i) => (
-                          <td key={i} className={`px-4 py-3 text-right font-mono font-bold ${i === 1 ? "text-amber-400" : "text-zinc-200"}`}>{fmt(v)}</td>
-                        ))}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-                <p className="px-6 py-3 text-xs text-zinc-600 border-t border-zinc-800">* GST estimated at 18%. Verify with your CA before GSTR-3B filing.</p>
-              </div>
-            )}
-
-            {tab === "monthly" && summary && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-                <div className="px-6 py-4 border-b border-zinc-800"><h2 className="font-semibold">Monthly Income vs Expenses</h2></div>
-                <div className="p-6" style={{ minHeight: 296 }}>
-                  <MonthlyTrendChart data={summary.monthly_trend} />
-                </div>
-                {summary.monthly_trend.length > 0 && (
-                  <div className="border-t border-zinc-800 overflow-x-auto">
-                    <table className="w-full text-sm min-w-[500px]">
-                      <thead className="bg-zinc-900/60">
-                        <tr>{["Month","Income","Expenses","Net","Margin"].map(h => (
-                          <th key={h} className="px-4 py-2.5 text-xs text-zinc-400 font-medium text-right first:text-left">{h}</th>
-                        ))}</tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-800/40">
-                        {summary.monthly_trend.map(m => {
-                          const margin = m.income > 0 ? (m.net / m.income * 100) : 0;
-                          return (
-                            <tr key={m.month} className="hover:bg-zinc-900/40">
-                              <td className="px-4 py-2.5 text-zinc-300">{m.month_label}</td>
-                              <td className="px-4 py-2.5 text-right font-mono text-emerald-400">{fmt(m.income)}</td>
-                              <td className="px-4 py-2.5 text-right font-mono text-red-400">{fmt(m.expenses)}</td>
-                              <td className={`px-4 py-2.5 text-right font-mono font-semibold ${m.net >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                {m.net >= 0 ? "+" : "−"}{fmt(m.net)}
-                              </td>
-                              <td className={`px-4 py-2.5 text-right text-xs ${margin >= 0 ? "text-zinc-400" : "text-red-400"}`}>{margin.toFixed(1)}%</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
+            <div key={tab} style={{ animation: "rise 350ms ease-out" }}>
+              {tab === "pl" && summary && (
+                <PLStatement
+                  summary={summary}
+                  expenseLines={expenseLines}
+                  incomeLine={incomeLine}
+                  margin={margin}
+                  insights={insights}
+                  llmUsed={llmUsed}
+                />
+              )}
+              {tab === "gst" && gst && <GSTReport gst={gst} />}
+              {tab === "monthly" && summary && <MonthlyReport summary={summary} />}
+            </div>
           </>
         )}
+      </div>
+
+      <style>{`
+        @keyframes rise {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ───────── Profit & Loss ───────── */
+
+function PLStatement({
+  summary, expenseLines, incomeLine, margin, insights, llmUsed,
+}: {
+  summary: Summary;
+  expenseLines: CategoryTotal[];
+  incomeLine?: CategoryTotal;
+  margin: number | null;
+  insights: string[];
+  llmUsed: boolean;
+}) {
+  return (
+    <article style={{
+      padding: "32px 0",
+    }}>
+      {/* REVENUE */}
+      <SectionHeading kicker="01" title="Revenue" accent="#34d399" />
+      <Row
+        label="Total income"
+        sub={incomeLine ? `${incomeLine.count.toLocaleString("en-IN")} transactions` : undefined}
+        value={fmt(summary.total_income)}
+        accent="#34d399"
+      />
+
+      {/* EXPENSES */}
+      <SectionHeading kicker="02" title="Expenses" accent="#fb7185" />
+      {expenseLines.map(c => (
+        <Row
+          key={c.category}
+          label={c.category}
+          sub={`${c.count} txns · ${c.percentage.toFixed(1)}% of spend`}
+          value={fmt(c.total)}
+          accent="#fb7185"
+        />
+      ))}
+      <Row
+        label="Total expenses"
+        value={fmt(summary.total_expenses)}
+        accent="#fb7185"
+        emphasised
+      />
+
+      {/* NET */}
+      <div style={{
+        marginTop: 28, paddingTop: 22,
+        borderTop: "1px solid rgba(30,41,59,0.55)",
+        display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", gap: 16,
+      }}>
+        <div>
+          <div style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+            color: "#52525b", marginBottom: 8,
+          }}>
+            Bottom line
+          </div>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            fontStyle: "italic", fontSize: 30, color: "#f1f5f9",
+            lineHeight: 1,
+          }}>
+            {summary.net_cashflow > 0 ? <TrendingUp size={22} style={{ color: "#34d399" }} />
+              : summary.net_cashflow < 0 ? <TrendingDown size={22} style={{ color: "#fb7185" }} />
+              : <Minus size={22} style={{ color: "#94a3b8" }} />}
+            Net cashflow
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            fontStyle: "italic", fontSize: 56, lineHeight: 1,
+            color: summary.net_cashflow >= 0 ? "#6ee7b7" : "#fda4af",
+            fontVariantNumeric: "tabular-nums",
+          }}>
+            {fmtSigned(summary.net_cashflow)}
+          </div>
+          {margin != null && (
+            <div style={{
+              marginTop: 6,
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase",
+              color: "#52525b",
+            }}>
+              {margin.toFixed(1)}% net margin
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* CFO insights */}
+      {insights.length > 0 && (
+        <section style={{ marginTop: 44 }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 12, marginBottom: 18,
+          }}>
+            <span style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase",
+              color: "#475569",
+            }}>
+              {llmUsed ? "AI commentary" : "Commentary"}
+            </span>
+            <div style={{ flex: 1, height: 1, background: "rgba(30,41,59,0.5)" }} />
+          </div>
+
+          <div style={{
+            display: "grid", gap: 14,
+            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+          }}>
+            {insights.map((ins, i) => {
+              const drop = ins.match(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})/u)?.[0] ?? "·";
+              const body = ins.replace(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u, "");
+              return (
+                <article key={i} style={{
+                  display: "grid", gridTemplateColumns: "auto 1fr", gap: 12,
+                  padding: "12px 14px 12px 12px",
+                  borderLeft: "1px solid rgba(52,211,153,0.3)",
+                  background: "linear-gradient(90deg, rgba(52,211,153,0.04), transparent 30%)",
+                  borderRadius: "0 8px 8px 0",
+                }}>
+                  <span style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontStyle: "italic", fontSize: 26, color: "#34d399",
+                    lineHeight: 1, alignSelf: "flex-start",
+                  }}>
+                    {drop}
+                  </span>
+                  <p style={{
+                    margin: 0, fontSize: 13, lineHeight: 1.55,
+                    color: "#cbd5e1",
+                    fontFamily: "'Manrope', system-ui, sans-serif",
+                  }}>
+                    {body}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </article>
+  );
+}
+
+function SectionHeading({ kicker, title, accent }: { kicker: string; title: string; accent: string }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "baseline", gap: 14,
+      marginTop: 28, marginBottom: 6,
+    }}>
+      <span style={{
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 10, letterSpacing: "0.2em", color: "#3f3f46",
+      }}>
+        {kicker}
+      </span>
+      <h2 style={{
+        margin: 0,
+        fontFamily: "'Instrument Serif', Georgia, serif",
+        fontSize: 22, fontStyle: "italic",
+        color: accent,
+      }}>
+        {title}
+      </h2>
+      <div style={{ flex: 1, height: 1, background: `${accent}1f`, marginBottom: 6 }} />
+    </div>
+  );
+}
+
+function Row({
+  label, sub, value, accent, emphasised,
+}: {
+  label: string;
+  sub?: string;
+  value: string;
+  accent?: string;
+  emphasised?: boolean;
+}) {
+  return (
+    <div style={{
+      display: "grid", gridTemplateColumns: "1fr auto", alignItems: "baseline",
+      gap: 16, padding: "12px 4px",
+      borderBottom: emphasised ? "none" : "1px dotted rgba(30,41,59,0.55)",
+      borderTop: emphasised ? "1px solid rgba(30,41,59,0.6)" : "none",
+      marginTop: emphasised ? 6 : 0,
+    }}>
+      <div>
+        <div style={{
+          fontFamily: "'Manrope', system-ui, sans-serif",
+          fontSize: emphasised ? 14 : 13.5,
+          fontWeight: emphasised ? 600 : 500,
+          color: emphasised ? "#e2e8f0" : "#cbd5e1",
+        }}>
+          {label}
+        </div>
+        {sub && (
+          <div style={{
+            marginTop: 2,
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase",
+            color: "#52525b",
+          }}>
+            {sub}
+          </div>
+        )}
+      </div>
+      <div style={{
+        fontFamily: "'Instrument Serif', Georgia, serif",
+        fontStyle: "italic", fontSize: emphasised ? 26 : 20,
+        color: accent ?? "#cbd5e1",
+        fontVariantNumeric: "tabular-nums",
+        textAlign: "right",
+      }}>
+        {value}
       </div>
     </div>
   );
 }
+
+/* ───────── GST report ───────── */
+
+function GSTReport({ gst }: { gst: GSTSummary }) {
+  return (
+    <article style={{ padding: "16px 0" }}>
+      {/* Top summary strip */}
+      <div style={{
+        display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
+        borderTop: "1px solid rgba(30,41,59,0.55)",
+        borderBottom: "1px solid rgba(30,41,59,0.55)",
+        marginBottom: 28,
+      }}>
+        <GSTBlock label="Taxable"     value={fmt(gst.total_taxable)} accent="#94a3b8" />
+        <GSTBlock label="GST (ITC)"   value={fmt(gst.total_gst)}     accent="#fbbf24" divider />
+        <GSTBlock label="CGST (9%)"   value={fmt(gst.total_cgst)}    accent="#94a3b8" divider />
+        <GSTBlock label="SGST (9%)"   value={fmt(gst.total_sgst)}    accent="#94a3b8" divider />
+      </div>
+
+      <SectionHeading kicker="·" title="By category" accent="#fbbf24" />
+
+      <div style={{ marginTop: 8, marginBottom: 18 }}>
+        {/* Column header */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 140px 130px 110px 110px",
+          gap: 12, padding: "8px 4px",
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
+          color: "#475569",
+          borderBottom: "1px solid rgba(30,41,59,0.5)",
+        }}>
+          <span>Category</span>
+          <span style={{ textAlign: "right" }}>Taxable</span>
+          <span style={{ textAlign: "right" }}>GST 18%</span>
+          <span style={{ textAlign: "right" }}>CGST</span>
+          <span style={{ textAlign: "right" }}>SGST</span>
+        </div>
+        {gst.lines.map(l => (
+          <div key={l.category} style={{
+            display: "grid", gridTemplateColumns: "1fr 140px 130px 110px 110px",
+            gap: 12, padding: "11px 4px",
+            borderBottom: "1px dotted rgba(30,41,59,0.55)",
+            alignItems: "baseline",
+          }}>
+            <span style={{
+              fontFamily: "'Manrope', system-ui, sans-serif", fontSize: 13,
+              color: "#cbd5e1",
+            }}>
+              {l.category}
+            </span>
+            <span style={cellSerif("#94a3b8")}>{fmt(l.taxable_amount)}</span>
+            <span style={cellSerif("#fbbf24")}>{fmt(l.gst_amount)}</span>
+            <span style={cellSerif("#94a3b8")}>{fmt(l.cgst)}</span>
+            <span style={cellSerif("#94a3b8")}>{fmt(l.sgst)}</span>
+          </div>
+        ))}
+        {/* Total row */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 140px 130px 110px 110px",
+          gap: 12, padding: "14px 4px 6px",
+          borderTop: "1px solid rgba(30,41,59,0.6)",
+          alignItems: "baseline",
+        }}>
+          <span style={{
+            fontFamily: "'Manrope', system-ui, sans-serif",
+            fontSize: 13.5, fontWeight: 600, color: "#e2e8f0",
+          }}>
+            Total
+          </span>
+          <span style={cellSerif("#cbd5e1", 22)}>{fmt(gst.total_taxable)}</span>
+          <span style={cellSerif("#fbbf24", 24)}>{fmt(gst.total_gst)}</span>
+          <span style={cellSerif("#cbd5e1", 22)}>{fmt(gst.total_cgst)}</span>
+          <span style={cellSerif("#cbd5e1", 22)}>{fmt(gst.total_sgst)}</span>
+        </div>
+      </div>
+
+      <p style={{
+        marginTop: 18, padding: "10px 12px",
+        borderLeft: "2px solid rgba(251,191,36,0.4)",
+        background: "linear-gradient(90deg, rgba(251,191,36,0.04), transparent 30%)",
+        fontFamily: "'Manrope', system-ui, sans-serif",
+        fontSize: 12, color: "#94a3b8", fontStyle: "italic",
+      }}>
+        GST estimated at 18%. Verify with your CA before GSTR-3B filing.
+      </p>
+    </article>
+  );
+}
+
+function GSTBlock({
+  label, value, accent, divider,
+}: { label: string; value: string; accent: string; divider?: boolean }) {
+  return (
+    <div style={{
+      padding: "22px 22px 18px",
+      borderLeft: divider ? "1px solid rgba(30,41,59,0.55)" : "none",
+      display: "flex", flexDirection: "column", gap: 8,
+    }}>
+      <div style={{
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+        color: "#52525b",
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontFamily: "'Instrument Serif', Georgia, serif",
+        fontStyle: "italic", fontSize: 32, lineHeight: 1,
+        color: accent, fontVariantNumeric: "tabular-nums",
+      }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function cellSerif(color: string, size: number = 18): React.CSSProperties {
+  return {
+    fontFamily: "'Instrument Serif', Georgia, serif",
+    fontStyle: "italic", fontSize: size,
+    color, fontVariantNumeric: "tabular-nums",
+    textAlign: "right",
+  };
+}
+
+/* ───────── Monthly report ───────── */
+
+function MonthlyReport({ summary }: { summary: Summary }) {
+  return (
+    <article style={{ padding: "8px 0" }}>
+      <section style={{
+        padding: 20,
+        border: "1px solid rgba(30,41,59,0.55)",
+        borderRadius: 12,
+        background: "rgba(15,23,42,0.3)",
+        marginBottom: 28,
+      }}>
+        <MonthlyTrendChart data={summary.monthly_trend} />
+      </section>
+
+      {summary.monthly_trend.length > 0 && (
+        <section>
+          <SectionHeading kicker="·" title="Month by month" accent="#60a5fa" />
+          <div style={{ marginTop: 10 }}>
+            <div style={{
+              display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr 80px",
+              gap: 12, padding: "8px 4px",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
+              color: "#475569",
+              borderBottom: "1px solid rgba(30,41,59,0.5)",
+            }}>
+              <span>Month</span>
+              <span style={{ textAlign: "right" }}>Income</span>
+              <span style={{ textAlign: "right" }}>Expenses</span>
+              <span style={{ textAlign: "right" }}>Net</span>
+              <span style={{ textAlign: "right" }}>Margin</span>
+            </div>
+            {summary.monthly_trend.map(m => {
+              const margin = m.income > 0 ? (m.net / m.income * 100) : 0;
+              return (
+                <div key={m.month} style={{
+                  display: "grid", gridTemplateColumns: "180px 1fr 1fr 1fr 80px",
+                  gap: 12, padding: "11px 4px",
+                  borderBottom: "1px dotted rgba(30,41,59,0.55)",
+                  alignItems: "baseline",
+                }}>
+                  <span style={{
+                    fontFamily: "'Manrope', system-ui, sans-serif",
+                    fontSize: 13, color: "#cbd5e1",
+                  }}>
+                    {m.month_label}
+                  </span>
+                  <span style={cellSerif("#6ee7b7", 17)}>{fmt(m.income)}</span>
+                  <span style={cellSerif("#fda4af", 17)}>{fmt(m.expenses)}</span>
+                  <span style={cellSerif(m.net >= 0 ? "#6ee7b7" : "#fda4af", 19)}>
+                    {fmtSigned(m.net)}
+                  </span>
+                  <span style={{
+                    textAlign: "right",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 11, color: margin >= 0 ? "#94a3b8" : "#fda4af",
+                    fontVariantNumeric: "tabular-nums",
+                  }}>
+                    {margin.toFixed(1)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </article>
+  );
+}
+
+/* ───────── sub-components ───────── */
+
+function DateField({
+  value, onChange, title,
+}: { value: string; onChange: (v: string) => void; title: string }) {
+  return (
+    <input type="date" value={value} onChange={e => onChange(e.target.value)} title={title}
+      style={{
+        padding: "5px 8px", borderRadius: 6,
+        border: "1px solid rgba(30,41,59,0.7)",
+        background: "rgba(15,23,42,0.5)", color: "#cbd5e1",
+        fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
+      }} />
+  );
+}
+
+/* ───────── styles ───────── */
+
+const pageBg: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#0a0e1a",
+  color: "#f8fafc",
+  fontFamily: "'Manrope', system-ui, sans-serif",
+  position: "relative",
+  overflow: "hidden",
+};
+
+function FontImport() {
+  return (
+    <style>{`@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`}</style>
+  );
+}
+
+function chipBtn(active: boolean): React.CSSProperties {
+  return {
+    padding: "5px 11px", borderRadius: 99,
+    border: `1px solid ${active ? "rgba(52,211,153,0.4)" : "rgba(30,41,59,0.7)"}`,
+    background: active ? "rgba(52,211,153,0.06)" : "transparent",
+    color: active ? "#6ee7b7" : "#94a3b8",
+    fontSize: 11, cursor: "pointer",
+    fontFamily: "'Manrope', system-ui, sans-serif",
+  };
+}
+
+function smallBtn(tone: "emerald" | "slate" | "amber"): React.CSSProperties {
+  const c = tone === "emerald" ? { border: "rgba(52,211,153,0.4)", text: "#6ee7b7", bg: "rgba(52,211,153,0.05)" }
+          : tone === "amber"   ? { border: "rgba(251,191,36,0.4)", text: "#fcd34d", bg: "rgba(251,191,36,0.04)" }
+          :                       { border: "rgba(30,41,59,0.7)",  text: "#cbd5e1", bg: "transparent" };
+  return {
+    display: "flex", alignItems: "center", gap: 5,
+    padding: "5px 10px", borderRadius: 6,
+    border: `1px solid ${c.border}`, background: c.bg,
+    color: c.text, fontSize: 11.5, cursor: "pointer",
+    fontFamily: "'Manrope', system-ui, sans-serif",
+  };
+}
+
+const emptyState: React.CSSProperties = {
+  textAlign: "center",
+  padding: "100px 24px",
+  border: "1px dashed rgba(30,41,59,0.7)",
+  borderRadius: 14,
+  color: "#475569", fontSize: 13,
+  fontFamily: "'Manrope', system-ui, sans-serif",
+};

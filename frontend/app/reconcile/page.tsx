@@ -1,269 +1,591 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/lib/api";
 import Nav from "@/components/Nav";
 import OrgSelector, { Org } from "@/components/OrgSelector";
-import { SourceBadge } from "@/components/Badge";
 import { useToast } from "@/components/Toast";
-import { GitMerge, CheckCircle2, XCircle, AlertCircle, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  RunDetail, RunSummary, MatchRow, AnomalyRow,
+  startRun, listRuns, getRun, scanAnomalies,
+  patchMatch, patchAnomaly,
+} from "@/lib/reconcile";
+import { apiFetch } from "@/lib/api";
+import { LoadingState, EmptyState, ErrorState } from "@/components/reconcile/states";
+import { InboxRow, InboxItem } from "@/components/reconcile/InboxRow";
+import { DetailPane } from "@/components/reconcile/DetailPane";
+import {
+  Loader2, Play, Search, Inbox, CheckCircle2, XCircle, Sparkles,
+} from "lucide-react";
 
 interface Batch { id: number; filename: string; source: string; row_count: number; }
-interface ReconcileDetail {
-  status: "matched" | "unmatched_source" | "unmatched_bank";
-  source_id?: number; bank_id?: number;
-  amount: number;
-  source_desc?: string; bank_desc?: string;
-}
-interface ReconcileResult {
-  matched_pairs: number;
-  unmatched_source: number;
-  unmatched_bank: number;
-  match_rate: number;
-  details: ReconcileDetail[];
-}
+
+type Segment = "triage" | "auto" | "accepted" | "dismissed";
+
+const SEGMENTS: Array<{
+  id: Segment; label: string; icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+}> = [
+  { id: "triage",    label: "Triage",       icon: Inbox },
+  { id: "auto",      label: "Auto-matched", icon: Sparkles },
+  { id: "accepted",  label: "Accepted",     icon: CheckCircle2 },
+  { id: "dismissed", label: "Dismissed",    icon: XCircle },
+];
 
 export default function ReconcilePage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [org, setOrg]               = useState<Org | null>(null);
-  const [batches, setBatches]        = useState<Batch[]>([]);
-  const [sourceId, setSourceId]      = useState<number | "">("");
-  const [bankId, setBankId]          = useState<number | "">("");
-  const [loading, setLoading]        = useState(false);
-  const [result, setResult]          = useState<ReconcileResult | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
+  const [org, setOrg]                 = useState<Org | null>(null);
+  const [batches, setBatches]         = useState<Batch[]>([]);
+  const [sourceBatchId, setSourceBatchId] = useState<number | null>(null);
+  const [bankBatchId, setBankBatchId] = useState<number | null>(null);
 
-  useEffect(() => { if (!localStorage.getItem("smb_token")) router.push("/login"); }, []);
+  const [runs, setRuns]               = useState<RunSummary[]>([]);
+  const [currentRun, setCurrentRun]   = useState<RunDetail | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [starting, setStarting]       = useState(false);
+
+  // UI state
+  const [segment, setSegment]         = useState<Segment>("triage");
+  const [search, setSearch]           = useState("");
+  const [selectedId, setSelectedId]   = useState<string | null>(null);   // "match-12" or "anomaly-7"
+  const [checkedIds, setCheckedIds]   = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy]       = useState(false);
+
+  useEffect(() => {
+    if (!localStorage.getItem("smb_token")) { router.push("/login"); return; }
+  }, []);
 
   useEffect(() => {
     if (!org) return;
-    setBatches([]); setSourceId(""); setBankId(""); setResult(null);
-    apiFetch<Batch[]>(`/transactions/batches/${org.id}`).then(setBatches);
+    apiFetch<Batch[]>(`/transactions/batches/${org.id}`).then(setBatches).catch(() => setBatches([]));
+    refreshRuns(org.id);
   }, [org]);
 
-  async function runReconcile() {
-    if (!org || !sourceId || !bankId) return;
-    if (sourceId === bankId) {
-      toast("Source and bank batches must be different", "error");
-      return;
-    }
-    setLoading(true); setResult(null);
+  async function refreshRuns(orgId: number) {
     try {
-      const r = await apiFetch<ReconcileResult>(
-        `/transactions/reconcile/${org.id}?source_batch_id=${sourceId}&bank_batch_id=${bankId}`,
-        { method: "POST" }
-      );
-      setResult(r);
-      toast(`Reconciliation complete — ${r.matched_pairs} matches found`, "success");
+      const list = await listRuns(orgId);
+      setRuns(list);
+      if (list.length > 0) {
+        const detail = await getRun(orgId, list[0].id);
+        setCurrentRun(detail);
+      } else {
+        setCurrentRun(null);
+      }
     } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : "Reconciliation failed", "error");
-    } finally { setLoading(false); }
+      setError(e instanceof Error ? e.message : "Failed to load runs");
+    }
   }
 
-  const sourceBatches = batches.filter(b => b.id !== Number(bankId));
-  const bankBatches   = batches.filter(b => b.id !== Number(sourceId));
+  async function handleStart() {
+    if (!org || !sourceBatchId || !bankBatchId) return;
+    setStarting(true);
+    try {
+      const detail = await startRun(org.id, sourceBatchId, bankBatchId);
+      setCurrentRun(detail);
+      const list = await listRuns(org.id);
+      setRuns(list);
+      toast("Reconciliation complete", "success");
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : "Reconciliation failed", "error");
+    } finally {
+      setStarting(false);
+    }
+  }
 
-  const matched    = result?.details.filter(d => d.status === "matched")          ?? [];
-  const unmatchedS = result?.details.filter(d => d.status === "unmatched_source") ?? [];
-  const unmatchedB = result?.details.filter(d => d.status === "unmatched_bank")   ?? [];
+  async function handleScan() {
+    if (!org) return;
+    try {
+      const r = await scanAnomalies(org.id);
+      toast(`Scanned ${r.scanned} — ${r.new_anomalies} new anomalies`, "success");
+      await refreshRuns(org.id);
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : "Scan failed", "error");
+    }
+  }
+
+  // ── Normalise matches + anomalies into a single inbox list ─────────────────
+  const allItems: InboxItem[] = useMemo(() => {
+    if (!currentRun) return [];
+    return [
+      ...currentRun.matches.map<InboxItem>(m => ({ kind: "match", data: m })),
+      ...currentRun.anomalies.map<InboxItem>(a => ({ kind: "anomaly", data: a })),
+    ];
+  }, [currentRun]);
+
+  // ── Per-segment filter ─────────────────────────────────────────────────────
+  function inSegment(item: InboxItem, seg: Segment): boolean {
+    if (seg === "triage") {
+      if (item.kind === "anomaly") return item.data.status === "open";
+      return item.data.status === "pending" && item.data.confidence !== "high";
+    }
+    if (seg === "auto") {
+      if (item.kind === "anomaly") return false;
+      return item.data.status === "pending" && item.data.confidence === "high";
+    }
+    if (seg === "accepted") return item.data.status === "accepted";
+    if (seg === "dismissed") {
+      return item.kind === "anomaly"
+        ? item.data.status === "dismissed" || item.data.status === "snoozed"
+        : item.data.status === "rejected";
+    }
+    return false;
+  }
+
+  const counts = useMemo(() => {
+    const c: Record<Segment, number> = { triage: 0, auto: 0, accepted: 0, dismissed: 0 };
+    for (const it of allItems) {
+      for (const s of SEGMENTS) if (inSegment(it, s.id)) c[s.id]++;
+    }
+    return c;
+  }, [allItems]);
+
+  // ── Search filter ─────────────────────────────────────────────────────────
+  function matchesSearch(item: InboxItem, q: string): boolean {
+    if (!q) return true;
+    const needle = q.toLowerCase();
+    if (item.kind === "anomaly") {
+      const a = item.data;
+      return [a.rule_id, a.explanation, JSON.stringify(a.detail)]
+        .filter(Boolean).join(" ").toLowerCase().includes(needle);
+    }
+    return (item.data.explanation ?? "").toLowerCase().includes(needle);
+  }
+
+  // ── Sort: anomalies > low-conf matches > high-conf matches, then date desc ─
+  function priority(item: InboxItem): number {
+    if (item.kind === "anomaly") {
+      return item.data.severity === "high"   ? 100
+           : item.data.severity === "medium" ? 60
+           :                                   30;
+    }
+    return item.data.confidence === "high"   ? 5
+         : item.data.confidence === "medium" ? 40
+         :                                     50;
+  }
+
+  const visibleItems = useMemo(() => {
+    return allItems
+      .filter(it => inSegment(it, segment))
+      .filter(it => matchesSearch(it, search))
+      .sort((a, b) => {
+        const p = priority(b) - priority(a);
+        if (p !== 0) return p;
+        const da = a.kind === "anomaly" ? a.data.detected_at : a.data.updated_at;
+        const db = b.kind === "anomaly" ? b.data.detected_at : b.data.updated_at;
+        return new Date(db).getTime() - new Date(da).getTime();
+      });
+  }, [allItems, segment, search]);
+
+  const idOf = (it: InboxItem) => `${it.kind}-${it.data.id}`;
+  const selectedItem = useMemo(
+    () => allItems.find(it => idOf(it) === selectedId) ?? null,
+    [allItems, selectedId],
+  );
+
+  function updateInState(updated: MatchRow | AnomalyRow) {
+    setCurrentRun(r => {
+      if (!r) return r;
+      if ("rule_id" in updated) {
+        return { ...r, anomalies: r.anomalies.map(a => a.id === updated.id ? updated : a) };
+      }
+      return { ...r, matches: r.matches.map(m => m.id === updated.id ? updated : m) };
+    });
+  }
+
+  // ── Selection ─────────────────────────────────────────────────────────────
+  function toggleCheck(id: string) {
+    setCheckedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function checkAllVisible() {
+    setCheckedIds(prev => {
+      const next = new Set(prev);
+      visibleItems.forEach(it => next.add(idOf(it)));
+      return next;
+    });
+  }
+
+  function clearChecks() { setCheckedIds(new Set()); }
+
+  // ── Bulk operations ───────────────────────────────────────────────────────
+  async function bulk(action: "accept" | "dismiss") {
+    if (checkedIds.size === 0) return;
+    setBulkBusy(true);
+    const targets = visibleItems.filter(it => checkedIds.has(idOf(it)));
+    const ops = targets.map(it => {
+      if (it.kind === "match") {
+        return patchMatch(it.data.id, action === "accept" ? "accepted" : "rejected");
+      }
+      return patchAnomaly(it.data.id, action === "accept" ? "accepted" : "dismissed");
+    });
+    try {
+      const updates = await Promise.allSettled(ops);
+      const ok = updates.filter(u => u.status === "fulfilled").length;
+      const fail = updates.length - ok;
+      updates.forEach(u => { if (u.status === "fulfilled") updateInState(u.value); });
+      clearChecks();
+      toast(`${ok} ${action}ed${fail ? ` · ${fail} failed` : ""}`, fail ? "error" : "success");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  if (!org) {
+    return (
+      <div style={pageStyle}>
+        <FontImport />
+        <Nav />
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "36px 24px" }}>
+          <Header onSelectOrg={setOrg} org={null} />
+          <EmptyState title="Pick an organisation" subtitle="Select one above to view reconciliations." />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-zinc-950">
+    <div style={pageStyle}>
+      <FontImport />
       <Nav />
-      <div className="mx-auto max-w-4xl px-4 md:px-6 py-6">
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-bold">GST Reconciliation</h1>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              Match your Shopify payouts against bank statements to spot discrepancies
-            </p>
-          </div>
-          <OrgSelector selected={org} onSelect={setOrg} />
+      <div style={{ maxWidth: 1440, margin: "0 auto", padding: "28px 24px 60px" }}>
+        <Header onSelectOrg={setOrg} org={org} />
+
+        {/* Run-start form */}
+        <div style={{
+          padding: 14, borderRadius: 12,
+          border: "1px solid rgba(30,41,59,0.6)",
+          background: "rgba(15,23,42,0.4)",
+          display: "flex", alignItems: "center", gap: 10,
+          flexWrap: "wrap", marginBottom: 22,
+        }}>
+          <select value={sourceBatchId ?? ""} onChange={e => setSourceBatchId(Number(e.target.value) || null)} style={selectStyle}>
+            <option value="">Source batch (Shopify…)</option>
+            {batches.filter(b => b.source !== "bank").map(b => (
+              <option key={b.id} value={b.id}>{b.filename} ({b.row_count} rows)</option>
+            ))}
+          </select>
+          <select value={bankBatchId ?? ""} onChange={e => setBankBatchId(Number(e.target.value) || null)} style={selectStyle}>
+            <option value="">Bank batch</option>
+            {batches.filter(b => b.source === "bank").map(b => (
+              <option key={b.id} value={b.id}>{b.filename} ({b.row_count} rows)</option>
+            ))}
+          </select>
+          <button onClick={handleStart} disabled={!sourceBatchId || !bankBatchId || starting} style={primaryBtn(starting)}>
+            {starting ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+            Run reconciliation
+          </button>
+          <button onClick={handleScan} style={ghostBtn}>Rescan anomalies</button>
+          {runs.length > 0 && (
+            <span style={{
+              marginLeft: "auto",
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+              letterSpacing: "0.14em", textTransform: "uppercase", color: "#475569",
+            }}>
+              {runs.length} run{runs.length !== 1 ? "s" : ""} · latest #{runs[0]?.id}
+            </span>
+          )}
         </div>
 
-        {!org ? (
-          <div className="text-center py-20 text-zinc-500">Select an organisation to reconcile.</div>
-        ) : batches.length < 2 ? (
-          <div className="rounded-xl border border-dashed border-zinc-700 p-10 text-center">
-            <GitMerge size={36} className="mx-auto text-zinc-700 mb-3" />
-            <p className="text-zinc-400 mb-1">You need at least 2 upload batches to reconcile.</p>
-            <p className="text-xs text-zinc-600">Upload your Shopify CSV and bank statement CSV separately, then come back here.</p>
-          </div>
-        ) : (
-          <>
-            {/* Batch selector */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              {/* Source (Shopify) */}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
-                <p className="text-xs uppercase tracking-widest text-zinc-500 mb-3 font-semibold">Source (e.g. Shopify)</p>
-                <div className="space-y-2">
-                  {sourceBatches.map(b => (
-                    <label key={b.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors ${
-                      sourceId === b.id
-                        ? "border-emerald-600 bg-emerald-950/30"
-                        : "border-zinc-700 hover:border-zinc-500"
-                    }`}>
-                      <input
-                        type="radio"
-                        name="source"
-                        value={b.id}
-                        checked={sourceId === b.id}
-                        onChange={() => setSourceId(b.id)}
-                        className="accent-emerald-500"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-zinc-200 truncate">{b.filename}</p>
-                        <p className="text-xs text-zinc-500 mt-0.5">{b.row_count} transactions</p>
-                      </div>
-                      <SourceBadge source={b.source} />
-                    </label>
-                  ))}
-                </div>
-              </div>
+        {loading && <LoadingState />}
+        {error && <ErrorState message={error} onRetry={() => org && refreshRuns(org.id)} />}
 
-              {/* Bank */}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
-                <p className="text-xs uppercase tracking-widest text-zinc-500 mb-3 font-semibold">Bank Statement</p>
-                <div className="space-y-2">
-                  {bankBatches.map(b => (
-                    <label key={b.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors ${
-                      bankId === b.id
-                        ? "border-sky-600 bg-sky-950/30"
-                        : "border-zinc-700 hover:border-zinc-500"
-                    }`}>
-                      <input
-                        type="radio"
-                        name="bank"
-                        value={b.id}
-                        checked={bankId === b.id}
-                        onChange={() => setBankId(b.id)}
-                        className="accent-sky-500"
+        {!loading && !error && !currentRun && (
+          <EmptyState title="No reconciliations yet" subtitle="Start one above to begin." />
+        )}
+
+        {!loading && !error && currentRun && (
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "172px 1fr auto",
+            border: "1px solid rgba(30,41,59,0.55)",
+            borderRadius: 14,
+            background: "rgba(10,14,26,0.7)",
+            overflow: "hidden",
+            minHeight: 580,
+          }}>
+            <SegmentRail
+              segment={segment}
+              onSelect={s => { setSegment(s); clearChecks(); setSelectedId(null); }}
+              counts={counts}
+            />
+
+            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <Banner segment={segment} count={visibleItems.length} totalTriage={counts.triage} />
+              <Toolbar
+                search={search}
+                onSearch={setSearch}
+                selectedCount={checkedIds.size}
+                visibleCount={visibleItems.length}
+                onCheckAll={checkAllVisible}
+                onClear={clearChecks}
+                onBulkAccept={() => bulk("accept")}
+                onBulkDismiss={() => bulk("dismiss")}
+                bulkBusy={bulkBusy}
+              />
+              <div style={{ overflowY: "auto", maxHeight: "70vh" }}>
+                {visibleItems.length === 0
+                  ? <div style={{ padding: 60 }}><EmptyState title={emptyTitleFor(segment)} /></div>
+                  : visibleItems.map((it, i) => (
+                      <InboxRow
+                        key={idOf(it) + "-" + i}
+                        item={it}
+                        selected={idOf(it) === selectedId}
+                        checked={checkedIds.has(idOf(it))}
+                        onClick={() => setSelectedId(idOf(it))}
+                        onToggleCheck={() => toggleCheck(idOf(it))}
                       />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-zinc-200 truncate">{b.filename}</p>
-                        <p className="text-xs text-zinc-500 mt-0.5">{b.row_count} transactions</p>
-                      </div>
-                      <SourceBadge source={b.source} />
-                    </label>
-                  ))}
-                </div>
+                    ))}
               </div>
             </div>
 
-            <button
-              onClick={runReconcile}
-              disabled={!sourceId || !bankId || loading}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-zinc-950 font-semibold py-3 transition-colors"
-            >
-              {loading
-                ? <><Loader2 size={16} className="animate-spin" /> Running reconciliation…</>
-                : <><GitMerge size={16} /> Run Reconciliation</>
-              }
-            </button>
-
-            {/* Results */}
-            {result && (
-              <div className="mt-6 space-y-4">
-                {/* Score cards */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-xl border border-emerald-800 bg-emerald-950/30 p-4 text-center">
-                    <CheckCircle2 size={20} className="mx-auto text-emerald-400 mb-2" />
-                    <p className="text-2xl font-bold text-emerald-400">{result.matched_pairs}</p>
-                    <p className="text-xs text-zinc-500 mt-0.5">Matched</p>
-                  </div>
-                  <div className="rounded-xl border border-red-800 bg-red-950/30 p-4 text-center">
-                    <XCircle size={20} className="mx-auto text-red-400 mb-2" />
-                    <p className="text-2xl font-bold text-red-400">{result.unmatched_source}</p>
-                    <p className="text-xs text-zinc-500 mt-0.5">Unmatched Source</p>
-                  </div>
-                  <div className="rounded-xl border border-amber-800 bg-amber-950/30 p-4 text-center">
-                    <AlertCircle size={20} className="mx-auto text-amber-400 mb-2" />
-                    <p className="text-2xl font-bold text-amber-400">{result.unmatched_bank}</p>
-                    <p className="text-xs text-zinc-500 mt-0.5">Unmatched Bank</p>
-                  </div>
-                </div>
-
-                {/* Match rate bar */}
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold">Match Rate</span>
-                    <span className={`text-xl font-bold ${result.match_rate >= 80 ? "text-emerald-400" : result.match_rate >= 50 ? "text-amber-400" : "text-red-400"}`}>
-                      {result.match_rate}%
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full bg-zinc-800">
-                    <div
-                      className={`h-2 rounded-full transition-all ${result.match_rate >= 80 ? "bg-emerald-500" : result.match_rate >= 50 ? "bg-amber-500" : "bg-red-500"}`}
-                      style={{ width: `${result.match_rate}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-2">
-                    {result.match_rate >= 80
-                      ? "Excellent — most transactions reconciled successfully."
-                      : result.match_rate >= 50
-                      ? "Partial match — review unmatched items below."
-                      : "Low match rate — check for date mismatches or different amount formats."}
-                  </p>
-                </div>
-
-                {/* Detail toggle */}
-                <button
-                  onClick={() => setShowDetails(d => !d)}
-                  className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
-                >
-                  {showDetails ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                  {showDetails ? "Hide" : "Show"} match details ({result.details.length} rows)
-                </button>
-
-                {showDetails && (
-                  <div className="rounded-xl border border-zinc-800 overflow-x-auto">
-                    <table className="w-full text-xs min-w-[600px]">
-                      <thead className="border-b border-zinc-800 bg-zinc-900/60">
-                        <tr>
-                          <th className="px-4 py-2.5 text-left text-zinc-400">Status</th>
-                          <th className="px-4 py-2.5 text-left text-zinc-400">Source Description</th>
-                          <th className="px-4 py-2.5 text-left text-zinc-400">Bank Description</th>
-                          <th className="px-4 py-2.5 text-right text-zinc-400">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-800/50">
-                        {matched.map((d, i) => (
-                          <tr key={i} className="bg-emerald-950/10">
-                            <td className="px-4 py-2"><span className="text-emerald-400">✓ Matched</span></td>
-                            <td className="px-4 py-2 text-zinc-400 truncate max-w-[180px]">{d.source_desc || "—"}</td>
-                            <td className="px-4 py-2 text-zinc-400 truncate max-w-[180px]">{d.bank_desc || "—"}</td>
-                            <td className="px-4 py-2 text-right font-mono text-zinc-300">₹{Math.abs(d.amount).toLocaleString("en-IN")}</td>
-                          </tr>
-                        ))}
-                        {unmatchedS.map((d, i) => (
-                          <tr key={`s${i}`} className="bg-red-950/10">
-                            <td className="px-4 py-2"><span className="text-red-400">✗ No bank entry</span></td>
-                            <td className="px-4 py-2 text-zinc-400">{d.source_desc || "—"}</td>
-                            <td className="px-4 py-2 text-zinc-600">—</td>
-                            <td className="px-4 py-2 text-right font-mono text-zinc-300">₹{Math.abs(d.amount).toLocaleString("en-IN")}</td>
-                          </tr>
-                        ))}
-                        {unmatchedB.map((d, i) => (
-                          <tr key={`b${i}`} className="bg-amber-950/10">
-                            <td className="px-4 py-2"><span className="text-amber-400">? Bank only</span></td>
-                            <td className="px-4 py-2 text-zinc-600">—</td>
-                            <td className="px-4 py-2 text-zinc-400">{d.bank_desc || "—"}</td>
-                            <td className="px-4 py-2 text-right font-mono text-zinc-300">₹{Math.abs(d.amount).toLocaleString("en-IN")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
+            <DetailPane
+              item={selectedItem}
+              onClose={() => setSelectedId(null)}
+              onChange={updateInState}
+            />
+          </div>
         )}
       </div>
     </div>
   );
+}
+
+/* ───────── sub-components ───────── */
+
+function Header({ org, onSelectOrg }: { org: Org | null; onSelectOrg: (o: Org | null) => void }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+      flexWrap: "wrap", gap: 16, marginBottom: 22,
+    }}>
+      <div>
+        <h1 style={{
+          fontFamily: "'Instrument Serif', Georgia, serif",
+          fontSize: 38, margin: "0 0 6px", lineHeight: 1, color: "#f8fafc",
+        }}>
+          Reconcile <em style={{ color: "#475569" }}>triage</em>
+        </h1>
+        <p style={{ fontSize: 13, color: "#475569" }}>
+          Match Shopify payouts to bank credits, review anomalies, take action.
+        </p>
+      </div>
+      <OrgSelector selected={org} onSelect={onSelectOrg} />
+    </div>
+  );
+}
+
+function Banner({ segment, count, totalTriage }: { segment: Segment; count: number; totalTriage: number }) {
+  const headline =
+    segment === "triage"    ? `${totalTriage} ${totalTriage === 1 ? "item wants" : "items want"} your attention`
+  : segment === "auto"      ? `${count} ${count === 1 ? "match was" : "matches were"} auto-matched with high confidence`
+  : segment === "accepted"  ? `${count} ${count === 1 ? "item" : "items"} accepted`
+  :                           `${count} ${count === 1 ? "item" : "items"} dismissed`;
+
+  return (
+    <div style={{ padding: "20px 22px 14px", borderBottom: "1px solid rgba(30,41,59,0.5)" }}>
+      <div style={{
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+        color: "#52525b", marginBottom: 6,
+      }}>
+        {segment}
+      </div>
+      <div style={{
+        fontFamily: "'Instrument Serif', Georgia, serif",
+        fontSize: 24, fontStyle: "italic", color: "#e2e8f0",
+        lineHeight: 1.2,
+      }}>
+        {headline}
+      </div>
+    </div>
+  );
+}
+
+function SegmentRail({
+  segment, onSelect, counts,
+}: {
+  segment: Segment;
+  onSelect: (s: Segment) => void;
+  counts: Record<Segment, number>;
+}) {
+  return (
+    <nav style={{
+      borderRight: "1px solid rgba(30,41,59,0.55)",
+      padding: "20px 0",
+      display: "flex", flexDirection: "column", gap: 4,
+      background: "rgba(15,23,42,0.4)",
+    }}>
+      {SEGMENTS.map(({ id, label, icon: Icon }) => {
+        const active = segment === id;
+        return (
+          <button key={id} onClick={() => onSelect(id)} style={{
+            position: "relative",
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "9px 18px 9px 22px",
+            border: "none", background: "transparent",
+            color: active ? "#f1f5f9" : "#64748b",
+            fontFamily: "'Manrope', system-ui, sans-serif",
+            fontSize: 13, fontWeight: active ? 600 : 500,
+            cursor: "pointer", textAlign: "left",
+            transition: "color 120ms",
+          }}
+            onMouseEnter={e => { if (!active) e.currentTarget.style.color = "#cbd5e1"; }}
+            onMouseLeave={e => { if (!active) e.currentTarget.style.color = "#64748b"; }}
+          >
+            {active && (
+              <span style={{
+                position: "absolute", left: 0, top: 8, bottom: 8, width: 2,
+                background: "#34d399", borderRadius: "0 2px 2px 0",
+              }} />
+            )}
+            <Icon size={13} style={{ color: active ? "#34d399" : "#475569" }} />
+            <span style={{ flex: 1 }}>{label}</span>
+            <span style={{
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+              color: active ? "#34d399" : "#475569",
+              fontVariantNumeric: "tabular-nums",
+            }}>
+              {counts[id]}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function Toolbar({
+  search, onSearch,
+  selectedCount, visibleCount,
+  onCheckAll, onClear,
+  onBulkAccept, onBulkDismiss, bulkBusy,
+}: {
+  search: string;
+  onSearch: (s: string) => void;
+  selectedCount: number;
+  visibleCount: number;
+  onCheckAll: () => void;
+  onClear: () => void;
+  onBulkAccept: () => void;
+  onBulkDismiss: () => void;
+  bulkBusy: boolean;
+}) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      padding: "10px 18px",
+      borderBottom: "1px solid rgba(30,41,59,0.45)",
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, flex: 1, maxWidth: 360,
+        padding: "6px 10px", borderRadius: 8,
+        border: "1px solid rgba(30,41,59,0.6)",
+        background: "rgba(15,23,42,0.6)",
+      }}>
+        <Search size={13} style={{ color: "#475569" }} />
+        <input
+          value={search}
+          onChange={e => onSearch(e.target.value)}
+          placeholder="Search vendor, explanation, evidence…"
+          style={{
+            flex: 1, border: "none", outline: "none", background: "transparent",
+            color: "#e2e8f0", fontSize: 12.5,
+            fontFamily: "'Manrope', system-ui, sans-serif",
+          }}
+        />
+      </div>
+
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        {selectedCount > 0 ? (
+          <>
+            <span style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase",
+              color: "#34d399", marginRight: 4,
+            }}>
+              {selectedCount} selected
+            </span>
+            <button onClick={onBulkAccept} disabled={bulkBusy} style={smallBtn("emerald")}>
+              {bulkBusy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+              Accept
+            </button>
+            <button onClick={onBulkDismiss} disabled={bulkBusy} style={smallBtn("rose")}>
+              {bulkBusy ? <Loader2 size={11} className="animate-spin" /> : <XCircle size={11} />}
+              Dismiss
+            </button>
+            <button onClick={onClear} style={smallBtn("slate")}>Clear</button>
+          </>
+        ) : (
+          <button onClick={onCheckAll} style={smallBtn("slate")}>
+            Select all ({visibleCount})
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ───────── styles & helpers ───────── */
+
+const pageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#0a0e1a",
+  color: "#f8fafc",
+  fontFamily: "'Manrope', system-ui, sans-serif",
+};
+
+function FontImport() {
+  return (
+    <style>{`@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`}</style>
+  );
+}
+
+const selectStyle: React.CSSProperties = {
+  padding: "7px 10px", borderRadius: 7,
+  border: "1px solid rgba(30,41,59,0.8)",
+  background: "rgba(15,23,42,0.7)", color: "#e2e8f0",
+  fontSize: 12.5, fontFamily: "inherit", minWidth: 220,
+};
+
+const primaryBtn = (busy: boolean): React.CSSProperties => ({
+  display: "flex", alignItems: "center", gap: 6,
+  padding: "7px 13px", borderRadius: 7, border: "none",
+  cursor: busy ? "wait" : "pointer",
+  background: "#34d399", color: "#0f172a",
+  fontSize: 12.5, fontWeight: 700, fontFamily: "inherit",
+  opacity: busy ? 0.6 : 1,
+});
+
+const ghostBtn: React.CSSProperties = {
+  padding: "7px 13px", borderRadius: 7,
+  border: "1px solid rgba(30,41,59,0.8)", background: "transparent",
+  color: "#94a3b8", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+};
+
+function smallBtn(tone: "emerald" | "rose" | "slate"): React.CSSProperties {
+  const colors = {
+    emerald: { border: "rgba(52,211,153,0.4)",  text: "#6ee7b7" },
+    rose:    { border: "rgba(251,113,133,0.4)", text: "#fda4af" },
+    slate:   { border: "rgba(148,163,184,0.3)", text: "#cbd5e1" },
+  }[tone];
+  return {
+    display: "flex", alignItems: "center", gap: 5,
+    padding: "5px 10px", borderRadius: 6,
+    border: `1px solid ${colors.border}`, background: "transparent",
+    color: colors.text, fontSize: 11.5, cursor: "pointer",
+    fontFamily: "'Manrope', system-ui, sans-serif",
+  };
+}
+
+function emptyTitleFor(segment: Segment): string {
+  return segment === "triage"    ? "Nothing needs your attention"
+       : segment === "auto"      ? "No auto-matched items"
+       : segment === "accepted"  ? "Nothing accepted yet"
+       :                            "Nothing dismissed yet";
 }

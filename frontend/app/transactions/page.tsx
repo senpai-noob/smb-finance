@@ -1,13 +1,14 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import Nav from "@/components/Nav";
 import OrgSelector, { Org } from "@/components/OrgSelector";
-import { CategoryBadge, StatusBadge } from "@/components/Badge";
 import { TableSkeleton } from "@/components/Skeleton";
 import { useToast } from "@/components/Toast";
-import { Search, ChevronLeft, ChevronRight, Edit2, Check, X, Download } from "lucide-react";
+import {
+  Search, ChevronLeft, ChevronRight, Edit2, Check, X, Download,
+} from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -27,9 +28,23 @@ const CATEGORIES = [
   "Rent & Utilities","GST & Tax","Banking & Finance","Travel & Meals","Uncategorised",
 ];
 
+const CAT_COLOR: Record<string, string> = {
+  "Income / Revenue":         "#34d399",
+  "Inventory & COGS":         "#fb7185",
+  "Salaries & Payroll":       "#f472b6",
+  "Advertising & Marketing":  "#fbbf24",
+  "GST & Tax":                "#a78bfa",
+  "Logistics & Shipping":     "#60a5fa",
+  "Rent & Utilities":         "#34d399",
+  "Software & Subscriptions": "#22d3ee",
+  "Travel & Meals":           "#f87171",
+  "Banking & Finance":        "#94a3b8",
+  "Uncategorised":            "#64748b",
+};
+
 const fmtINR = (v: number) => {
-  const abs = Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
-  return `${v < 0 ? "−" : "+"}₹${abs}`;
+  const abs = Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+  return `${v < 0 ? "−" : ""}₹${abs}`;
 };
 
 export default function TransactionsPage() {
@@ -50,9 +65,8 @@ export default function TransactionsPage() {
 
   useEffect(() => { if (!localStorage.getItem("smb_token")) router.push("/login"); }, []);
 
-  // Debounce search
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -79,7 +93,7 @@ export default function TransactionsPage() {
         method: "PATCH",
         body: JSON.stringify({ category: editCat }),
       });
-      toast("Category updated");
+      toast("Category updated", "success");
       setEditId(null);
       load();
     } catch {
@@ -90,169 +104,278 @@ export default function TransactionsPage() {
   const clearFilters = () => {
     setSearch(""); setCategory("All"); setDateFrom(""); setDateTo("");
   };
-  const hasFilters = search || category !== "All" || dateFrom || dateTo;
-  const exportUrl  = `${API}/transactions/export/${org?.id}${dateFrom ? `?date_from=${dateFrom}` : ""}${dateTo ? `${dateFrom ? "&" : "?"}date_to=${dateTo}` : ""}`;
+  const hasFilters = !!(search || category !== "All" || dateFrom || dateTo);
+
+  // Running totals of the current page (cheap; full-set totals would need a separate endpoint)
+  const totals = useMemo(() => {
+    const items = data?.items ?? [];
+    let income = 0, expense = 0;
+    for (const t of items) {
+      if (t.amount >= 0) income += t.amount;
+      else expense += t.amount;
+    }
+    return { income, expense, net: income + expense, count: items.length };
+  }, [data]);
+
+  const exportUrl = `${API}/transactions/export/${org?.id}${dateFrom ? `?date_from=${dateFrom}` : ""}${dateTo ? `${dateFrom ? "&" : "?"}date_to=${dateTo}` : ""}`;
 
   return (
-    <div className="min-h-screen bg-zinc-950">
-      <Nav />
-      <div className="mx-auto max-w-7xl px-4 md:px-6 py-6">
+    <div style={pageBg}>
+      <FontImport />
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      {/* Atmosphere */}
+      <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", opacity: 0.04,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+        zIndex: 0,
+      }} />
+
+      <Nav />
+
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 1280, margin: "0 auto", padding: "32px 28px 80px" }}>
+
+        {/* Masthead */}
+        <header style={{
+          display: "flex", alignItems: "flex-end", justifyContent: "space-between",
+          paddingBottom: 18, borderBottom: "1px solid rgba(30,41,59,0.55)",
+          marginBottom: 24, flexWrap: "wrap", gap: 16,
+          opacity: 0, animation: "rise 500ms ease-out forwards",
+        }}>
           <div>
-            <h1 className="text-xl font-bold">Transaction Ledger</h1>
-            {data && <p className="text-xs text-zinc-500 mt-0.5">{data.total.toLocaleString()} transactions</p>}
+            <h1 style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 38, lineHeight: 1, fontStyle: "italic",
+              color: "#f1f5f9", margin: 0,
+            }}>
+              Ledger
+            </h1>
+            <div style={{
+              marginTop: 8,
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+              color: "#52525b",
+            }}>
+              {data ? `${data.total.toLocaleString("en-IN")} transactions` : "—"}
+              {data && (debouncedSearch || category !== "All" || dateFrom || dateTo) &&
+                <> · filtered view</>}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {org && (
-              <a href={exportUrl} download
-                className="flex items-center gap-1.5 text-xs border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white rounded-lg px-3 py-1.5 transition-colors">
-                <Download size={12} /> Export CSV
+              <a href={exportUrl} download style={{
+                ...smallBtn("slate"), textDecoration: "none",
+              }}>
+                <Download size={11} /> Export CSV
               </a>
             )}
             <OrgSelector selected={org} onSelect={setOrg} />
           </div>
-        </div>
+        </header>
 
-        {/* Filters bar */}
-        <div className="flex flex-wrap gap-2 mb-4 p-3 rounded-xl border border-zinc-800 bg-zinc-900/30">
-          <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+        {/* Filter bar */}
+        <div style={{
+          display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center",
+          padding: "10px 12px", marginBottom: 18,
+          border: "1px solid rgba(30,41,59,0.6)",
+          background: "rgba(15,23,42,0.4)",
+          borderRadius: 12,
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, flex: 1, maxWidth: 300,
+            padding: "5px 10px", borderRadius: 7,
+            border: "1px solid rgba(30,41,59,0.7)",
+            background: "rgba(15,23,42,0.6)",
+          }}>
+            <Search size={12} style={{ color: "#475569" }} />
+            <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search description…"
-              className="pl-8 pr-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 w-52"
-            />
+              style={{
+                flex: 1, border: "none", outline: "none", background: "transparent",
+                color: "#e2e8f0", fontSize: 12.5,
+                fontFamily: "'Manrope', system-ui, sans-serif",
+              }} />
           </div>
-
-          <select
-            value={category}
-            onChange={e => setCategory(e.target.value)}
-            className="rounded-lg border border-zinc-700 bg-zinc-900 text-sm text-zinc-300 px-3 py-1.5 focus:outline-none focus:border-emerald-500"
-          >
+          <select value={category} onChange={e => setCategory(e.target.value)} style={selectStyle}>
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-
-          <div className="flex items-center gap-1.5">
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-              className="rounded-lg border border-zinc-700 bg-zinc-900 text-xs text-zinc-300 px-2.5 py-1.5 focus:outline-none focus:border-emerald-500" />
-            <span className="text-zinc-600 text-xs">→</span>
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-              className="rounded-lg border border-zinc-700 bg-zinc-900 text-xs text-zinc-300 px-2.5 py-1.5 focus:outline-none focus:border-emerald-500" />
-          </div>
-
+          <DateField value={dateFrom} onChange={setDateFrom} title="From" />
+          <span style={{ color: "#334155", fontSize: 11 }}>→</span>
+          <DateField value={dateTo} onChange={setDateTo} title="To" />
           {hasFilters && (
-            <button onClick={clearFilters}
-              className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700 rounded-lg px-2.5 py-1.5 transition-colors">
-              <X size={11} /> Clear
+            <button onClick={clearFilters} style={smallBtn("slate")}>
+              <X size={11} /> Clear filters
             </button>
           )}
+
+          {/* Running totals chip */}
+          <div style={{
+            marginLeft: "auto", display: "flex", alignItems: "center", gap: 16,
+            paddingLeft: 12, borderLeft: "1px solid rgba(30,41,59,0.6)",
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+            color: "#52525b", letterSpacing: "0.06em",
+          }}>
+            <TotalChip label="Page in" value={fmtINR(totals.income)} accent="#34d399" />
+            <TotalChip label="Page out" value={fmtINR(totals.expense)} accent="#fb7185" />
+            <TotalChip label="Net" value={fmtINR(totals.net)} accent={totals.net >= 0 ? "#60a5fa" : "#fb7185"} />
+          </div>
         </div>
 
         {/* Content */}
         {!org ? (
-          <div className="text-center py-20 text-zinc-500">Select an organisation to view transactions.</div>
+          <div style={emptyState}>Select an organisation to view transactions.</div>
         ) : loading ? (
-          <TableSkeleton rows={12} />
+          <TableSkeleton rows={14} />
         ) : !data?.items.length ? (
-          <div className="text-center py-20 border border-dashed border-zinc-800 rounded-xl text-zinc-500 text-sm">
+          <div style={emptyState}>
             {hasFilters ? "No transactions match your filters." : "No transactions yet. Upload a CSV to get started."}
           </div>
         ) : (
           <>
-            <div className="rounded-xl border border-zinc-800 overflow-x-auto">
-              <table className="w-full text-sm min-w-[700px]">
-                <thead className="border-b border-zinc-800 bg-zinc-900/60">
-                  <tr>
-                    {["Date","Description","Category","Amount","GST Est.","Status",""].map((h, i) => (
-                      <th key={i} className={`px-4 py-3 text-xs text-zinc-400 font-medium ${i >= 3 ? "text-right" : "text-left"} ${i === 5 ? "text-center" : ""} ${[4,5].includes(i) ? "hidden md:table-cell" : ""}`}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/50">
-                  {data.items.map(txn => (
-                    <tr key={txn.id} className="hover:bg-zinc-900/40 transition-colors group">
-                      <td className="px-4 py-3 text-xs text-zinc-500 whitespace-nowrap font-mono">
-                        {txn.date || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-300 max-w-[220px]">
-                        <span className="truncate block text-sm" title={txn.description || ""}>
-                          {txn.description || "—"}
+            {/* Inbox-style row list */}
+            <div style={{
+              border: "1px solid rgba(30,41,59,0.6)",
+              borderRadius: 12, overflow: "hidden",
+              background: "rgba(10,14,26,0.4)",
+            }}>
+              {data.items.map((t, i) => {
+                const isIncome   = t.amount >= 0;
+                const isUncat    = !t.category || t.category === "Uncategorised";
+                const railColor  = isUncat ? "#64748b" : isIncome ? "#34d399" : "#fb7185";
+                const catColor   = t.category ? CAT_COLOR[t.category] ?? "#94a3b8" : "#64748b";
+                const editing    = editId === t.id;
+                return (
+                  <div key={t.id} style={{
+                    position: "relative",
+                    display: "grid",
+                    gridTemplateColumns: "5px 86px 1fr 200px 100px 110px 28px",
+                    alignItems: "center",
+                    gap: 14,
+                    padding: "10px 14px 10px 0",
+                    borderTop: i === 0 ? "none" : "1px solid rgba(30,41,59,0.4)",
+                    transition: "background 120ms",
+                  }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(15,23,42,0.6)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                  >
+                    {/* Severity rail */}
+                    <div style={{
+                      width: 3, height: 28, marginLeft: 4,
+                      background: railColor, borderRadius: "0 2px 2px 0",
+                    }} />
+
+                    {/* Date */}
+                    <div style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 11, color: "#475569",
+                      letterSpacing: "0.06em", textTransform: "uppercase",
+                    }}>
+                      {t.date ? new Date(t.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "—"}
+                    </div>
+
+                    {/* Description */}
+                    <div style={{
+                      fontFamily: "'Manrope', system-ui, sans-serif",
+                      fontSize: 13, color: "#cbd5e1",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }} title={t.description ?? ""}>
+                      {t.description || "—"}
+                    </div>
+
+                    {/* Category chip / edit */}
+                    <div>
+                      {editing ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <select value={editCat} onChange={e => setEditCat(e.target.value)}
+                            style={{ ...selectStyle, padding: "4px 8px", fontSize: 11, minWidth: 0 }}>
+                            {CATEGORIES.filter(c => c !== "All").map(c => <option key={c}>{c}</option>)}
+                          </select>
+                          <button onClick={() => saveCategory(t.id)} style={iconBtn("emerald")}>
+                            <Check size={12} />
+                          </button>
+                          <button onClick={() => setEditId(null)} style={iconBtn("slate")}>
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                          padding: "3px 10px", borderRadius: 99,
+                          background: `${catColor}14`,
+                          border: `1px solid ${catColor}33`,
+                          color: catColor, fontSize: 11,
+                          fontFamily: "'Manrope', system-ui, sans-serif",
+                        }}>
+                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: catColor }} />
+                          {t.category || "Uncategorised"}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {editId === txn.id ? (
-                          <div className="flex items-center gap-1">
-                            <select
-                              value={editCat}
-                              onChange={e => setEditCat(e.target.value)}
-                              className="rounded border border-zinc-600 bg-zinc-800 text-xs text-white px-1.5 py-1 focus:outline-none focus:border-emerald-500"
-                            >
-                              {CATEGORIES.filter(c => c !== "All").map(c => (
-                                <option key={c}>{c}</option>
-                              ))}
-                            </select>
-                            <button onClick={() => saveCategory(txn.id)} className="text-emerald-400 hover:text-emerald-300 p-0.5">
-                              <Check size={13} />
-                            </button>
-                            <button onClick={() => setEditId(null)} className="text-zinc-500 hover:text-zinc-300 p-0.5">
-                              <X size={13} />
-                            </button>
-                          </div>
-                        ) : (
-                          <CategoryBadge category={txn.category} />
-                        )}
-                      </td>
-                      <td className={`px-4 py-3 text-right font-mono font-semibold ${txn.amount >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                        {fmtINR(txn.amount)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-xs text-zinc-500 hidden md:table-cell font-mono">
-                        {txn.gst_amount
-                          ? `₹${txn.gst_amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-center hidden md:table-cell">
-                        <StatusBadge reconciled={txn.is_reconciled} />
-                      </td>
-                      <td className="px-4 py-3 w-8">
-                        <button
-                          onClick={() => { setEditId(txn.id); setEditCat(txn.category || "Uncategorised"); }}
-                          className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-zinc-200 transition-all"
-                        >
-                          <Edit2 size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      )}
+                    </div>
+
+                    {/* GST */}
+                    <div style={{
+                      textAlign: "right",
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 11, color: "#475569",
+                    }}>
+                      {t.gst_amount
+                        ? `₹${t.gst_amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+                        : "—"}
+                    </div>
+
+                    {/* Amount in serif italic */}
+                    <div style={{
+                      fontFamily: "'Instrument Serif', Georgia, serif",
+                      fontStyle: "italic", fontSize: 17,
+                      textAlign: "right",
+                      fontVariantNumeric: "tabular-nums",
+                      color: t.amount >= 0 ? "#6ee7b7" : "#fda4af",
+                    }}>
+                      {fmtINR(t.amount)}
+                    </div>
+
+                    {/* Edit button */}
+                    <button
+                      onClick={() => { setEditId(t.id); setEditCat(t.category || "Uncategorised"); }}
+                      style={{
+                        background: "transparent", border: "none", cursor: "pointer",
+                        color: "#3f3f46", padding: 4,
+                        opacity: editing ? 0 : 0.6,
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.color = "#94a3b8")}
+                      onMouseLeave={e => (e.currentTarget.style.color = "#3f3f46")}
+                      title="Edit category"
+                    >
+                      <Edit2 size={12} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Pagination */}
             {data.total_pages > 1 && (
-              <div className="flex items-center justify-between mt-4 px-1">
-                <p className="text-xs text-zinc-500">
-                  Page {data.page} of {data.total_pages} · {data.total.toLocaleString()} total
-                </p>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="rounded-lg border border-zinc-700 p-1.5 disabled:opacity-30 hover:border-zinc-500 transition-colors"
-                  >
-                    <ChevronLeft size={14} />
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                marginTop: 18, padding: "0 4px",
+              }}>
+                <div style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase",
+                  color: "#475569",
+                }}>
+                  Page {data.page} of {data.total_pages} · {data.total.toLocaleString("en-IN")} total
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                    style={{ ...pagerBtn, opacity: page === 1 ? 0.3 : 1 }}>
+                    <ChevronLeft size={13} />
                   </button>
-                  <span className="text-xs text-zinc-400 px-2">{page}</span>
-                  <button
-                    onClick={() => setPage(p => Math.min(data.total_pages, p + 1))}
-                    disabled={page === data.total_pages}
-                    className="rounded-lg border border-zinc-700 p-1.5 disabled:opacity-30 hover:border-zinc-500 transition-colors"
-                  >
-                    <ChevronRight size={14} />
+                  <span style={{
+                    fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                    color: "#cbd5e1", padding: "0 10px",
+                  }}>{page}</span>
+                  <button onClick={() => setPage(p => Math.min(data.total_pages, p + 1))} disabled={page === data.total_pages}
+                    style={{ ...pagerBtn, opacity: page === data.total_pages ? 0.3 : 1 }}>
+                    <ChevronRight size={13} />
                   </button>
                 </div>
               </div>
@@ -260,6 +383,114 @@ export default function TransactionsPage() {
           </>
         )}
       </div>
+
+      <style>{`
+        @keyframes rise {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }
+
+/* ───────── sub-components ───────── */
+
+function TotalChip({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{
+        fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase",
+        color: "#52525b",
+      }}>
+        {label}
+      </span>
+      <span style={{
+        fontFamily: "'Instrument Serif', Georgia, serif",
+        fontStyle: "italic", fontSize: 14,
+        color: accent, fontVariantNumeric: "tabular-nums",
+      }}>
+        {value}
+      </span>
+    </span>
+  );
+}
+
+function DateField({
+  value, onChange, title,
+}: { value: string; onChange: (v: string) => void; title: string }) {
+  return (
+    <input type="date" value={value} onChange={e => onChange(e.target.value)} title={title}
+      style={{
+        padding: "5px 8px", borderRadius: 6,
+        border: "1px solid rgba(30,41,59,0.7)",
+        background: "rgba(15,23,42,0.5)", color: "#cbd5e1",
+        fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
+      }} />
+  );
+}
+
+/* ───────── styles ───────── */
+
+const pageBg: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#0a0e1a",
+  color: "#f8fafc",
+  fontFamily: "'Manrope', system-ui, sans-serif",
+  position: "relative",
+  overflow: "hidden",
+};
+
+function FontImport() {
+  return (
+    <style>{`@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`}</style>
+  );
+}
+
+const selectStyle: React.CSSProperties = {
+  padding: "5px 10px", borderRadius: 7,
+  border: "1px solid rgba(30,41,59,0.7)",
+  background: "rgba(15,23,42,0.6)", color: "#e2e8f0",
+  fontSize: 12, fontFamily: "'Manrope', system-ui, sans-serif",
+  cursor: "pointer", minWidth: 170,
+};
+
+function smallBtn(tone: "emerald" | "slate" | "rose"): React.CSSProperties {
+  const c = tone === "emerald" ? { border: "rgba(52,211,153,0.4)", text: "#6ee7b7", bg: "rgba(52,211,153,0.05)" }
+          : tone === "rose"    ? { border: "rgba(251,113,133,0.4)", text: "#fda4af", bg: "transparent" }
+          :                       { border: "rgba(30,41,59,0.7)",  text: "#cbd5e1", bg: "transparent" };
+  return {
+    display: "flex", alignItems: "center", gap: 5,
+    padding: "5px 10px", borderRadius: 6,
+    border: `1px solid ${c.border}`, background: c.bg,
+    color: c.text, fontSize: 11.5, cursor: "pointer",
+    fontFamily: "'Manrope', system-ui, sans-serif",
+  };
+}
+
+function iconBtn(tone: "emerald" | "slate"): React.CSSProperties {
+  const c = tone === "emerald"
+    ? { color: "#34d399", border: "rgba(52,211,153,0.3)" }
+    : { color: "#94a3b8", border: "rgba(30,41,59,0.7)" };
+  return {
+    width: 24, height: 24, borderRadius: 5,
+    border: `1px solid ${c.border}`, background: "transparent",
+    color: c.color, cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  };
+}
+
+const pagerBtn: React.CSSProperties = {
+  padding: 6, borderRadius: 6,
+  border: "1px solid rgba(30,41,59,0.7)",
+  background: "transparent", color: "#94a3b8", cursor: "pointer",
+};
+
+const emptyState: React.CSSProperties = {
+  textAlign: "center",
+  padding: "100px 24px",
+  border: "1px dashed rgba(30,41,59,0.7)",
+  borderRadius: 14,
+  color: "#475569", fontSize: 13,
+  fontFamily: "'Manrope', system-ui, sans-serif",
+};

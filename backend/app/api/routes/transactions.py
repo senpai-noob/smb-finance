@@ -445,7 +445,7 @@ def export_transactions(
 
 # ── reconcile ─────────────────────────────────────────────────────────────────
 
-@router.post("/reconcile/{org_id}", response_model=ReconcileResult)
+@router.post("/reconcile/{org_id}", response_model=ReconcileResult, deprecated=True)
 def reconcile(
     org_id: int,
     source_batch_id: int,
@@ -453,40 +453,27 @@ def reconcile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # FIX 1: viewers cannot reconcile
-    m = check_org_membership(org_id, current_user, db)
-    if m.role not in UPLOAD_ROLES:
-        raise HTTPException(status_code=403, detail="Viewers cannot run reconciliation")
-
-    source_txns = db.query(Transaction).filter(Transaction.batch_id == source_batch_id).all()
-    bank_txns   = db.query(Transaction).filter(Transaction.batch_id == bank_batch_id).all()
-
-    if not source_txns:
-        raise HTTPException(status_code=404, detail="Source batch has no transactions")
-    if not bank_txns:
-        raise HTTPException(status_code=404, detail="Bank batch has no transactions")
-
-    result = reconcile_batches(source_txns, bank_txns)
-
-    for detail in result["details"]:
-        if detail["status"] == "matched":
-            db.query(Transaction).filter(Transaction.id == detail["source_id"]).update(
-                {"is_reconciled": True, "reconciled_with": detail["bank_id"]})
-            db.query(Transaction).filter(Transaction.id == detail["bank_id"]).update(
-                {"is_reconciled": True, "reconciled_with": detail["source_id"]})
-
-    # FIX 3: Audit log for reconcile
-    log_action(db, "reconcile.run", user_id=current_user.id, org_id=org_id,
-               resource=f"batch:{source_batch_id}vs{bank_batch_id}",
-               detail={"matched": result["matched_pairs"],
-                       "unmatched_src": result["unmatched_source"],
-                       "unmatched_bank": result["unmatched_bank"]})
-    db.commit()
-
-    total = len(source_txns)
+    """DEPRECATED — use POST /api/reconcile/runs/{org_id} instead."""
+    from app.api.routes.reconcile_v2 import start_run
+    from app.schemas.reconciliation import StartRunRequest
+    new = start_run(
+        org_id=org_id,
+        payload=StartRunRequest(source_batch_id=source_batch_id, bank_batch_id=bank_batch_id),
+        db=db,
+        current_user=current_user,
+    )
+    # Map new RunDetail back to the legacy ReconcileResult shape
+    matched = len([m for m in new["matches"]])
+    summary = new.get("summary") or {}
+    unmatched_src = len(summary.get("unmatched_source") or [])
+    unmatched_bank = len(summary.get("unmatched_bank") or [])
+    total_src = matched + unmatched_src
     return ReconcileResult(
-        **result,
-        match_rate=round(result["matched_pairs"] / total * 100, 1) if total else 0
+        matched_pairs=matched,
+        unmatched_source=unmatched_src,
+        unmatched_bank=unmatched_bank,
+        match_rate=round(matched / total_src * 100, 1) if total_src else 0,
+        details=[],
     )
 
 
